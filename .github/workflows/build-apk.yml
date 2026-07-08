@@ -52,7 +52,25 @@ jobs:
         with:
           gradle-version: '8.7'
 
+      - name: Decode the signing keystore
+        env:
+          SIGNING_P12_BASE64: ${{ secrets.SIGNING_P12_BASE64 }}
+        run: |
+          # A FIXED signing key so every build shares one certificate and the
+          # in-app updater can upgrade in place. The keystore lives only in this
+          # secret (never in the repo); decode it here. If the secret is missing,
+          # the build falls back to a throwaway debug key (installs fresh, but
+          # will NOT update over a previous install).
+          if [ -n "$SIGNING_P12_BASE64" ]; then
+            echo "$SIGNING_P12_BASE64" | base64 -d > app/signing.p12
+            echo "Signing with the fixed key ($(stat -c%s app/signing.p12) bytes)."
+          else
+            echo "::warning::SIGNING_P12_BASE64 secret is not set — this APK uses a throwaway key and will not update in place. Add it in Settings → Secrets and variables → Actions."
+          fi
+
       - name: Build debug APK
+        env:
+          SIGNING_PASSWORD: ${{ secrets.SIGNING_PASSWORD }}
         run: gradle assembleDebug --no-daemon --stacktrace
 
       - name: Name the APK
