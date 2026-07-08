@@ -55,17 +55,32 @@ jobs:
       - name: Decode the signing keystore
         env:
           SIGNING_P12_BASE64: ${{ secrets.SIGNING_P12_BASE64 }}
+          SIGNING_PASSWORD: ${{ secrets.SIGNING_PASSWORD }}
         run: |
           # A FIXED signing key so every build shares one certificate and the
           # in-app updater can upgrade in place. The keystore lives only in this
           # secret (never in the repo); decode it here. If the secret is missing,
           # the build falls back to a throwaway debug key (installs fresh, but
           # will NOT update over a previous install).
-          if [ -n "$SIGNING_P12_BASE64" ]; then
-            echo "$SIGNING_P12_BASE64" | base64 -d > app/signing.p12
-            echo "Signing with the fixed key ($(stat -c%s app/signing.p12) bytes)."
+          if [ -z "${SIGNING_P12_BASE64:-}" ]; then
+            echo "::warning::SIGNING_P12_BASE64 not set — this APK uses a throwaway key and won't update in place. Add it in Settings → Secrets and variables → Actions."
+            exit 0
+          fi
+          # Strip any whitespace/newlines a copy-paste may have introduced, then
+          # decode (GNU base64 rejects stray spaces without --ignore-garbage).
+          printf '%s' "$SIGNING_P12_BASE64" | tr -d '[:space:]' | base64 --ignore-garbage -d > app/signing.p12
+          sz=$(stat -c%s app/signing.p12 2>/dev/null || echo 0)
+          echo "Decoded keystore: ${sz} bytes"
+          if [ "$sz" -lt 1000 ]; then
+            echo "::error::SIGNING_P12_BASE64 decoded to ${sz} bytes — the secret looks wrong or empty."
+            exit 1
+          fi
+          if keytool -list -keystore app/signing.p12 -storetype PKCS12 \
+               -storepass "${SIGNING_PASSWORD:-bms3dfloorplan}" >/dev/null 2>&1; then
+            echo "Keystore validated (PKCS12 + password OK)."
           else
-            echo "::warning::SIGNING_P12_BASE64 secret is not set — this APK uses a throwaway key and will not update in place. Add it in Settings → Secrets and variables → Actions."
+            echo "::error::Keystore decoded but keytool can't open it — wrong password or corrupt secret value."
+            exit 1
           fi
 
       - name: Build debug APK
