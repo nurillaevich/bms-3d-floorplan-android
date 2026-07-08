@@ -1,0 +1,8 @@
+.gradle/
+build/
+app/build/
+local.properties
+# Web assets are copied in by CI (standalone kiosk page + built card bundle).
+app/src/main/assets/kiosk/
+*.iml
+.idea/

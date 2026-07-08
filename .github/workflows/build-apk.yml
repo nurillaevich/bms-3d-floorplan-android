@@ -1,0 +1,66 @@
+name: Build APK
+
+# Builds the tablet kiosk .apk. The 3D card + kiosk page are pulled from the
+# integration repo (Abdunazar7/bms-3d-floorplan) so this app always bundles the
+# latest published panel — no card source lives here.
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      card_ref:
+        description: 'Integration git ref to pull the card from'
+        default: main
+
+permissions:
+  contents: write
+
+env:
+  CARD_REPO: Abdunazar7/bms-3d-floorplan
+  CARD_REF: ${{ github.event.inputs.card_ref || 'main' }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Pull the kiosk page + card from the integration
+        run: |
+          mkdir -p app/src/main/assets/kiosk
+          base="https://raw.githubusercontent.com/${CARD_REPO}/${CARD_REF}"
+          curl -fL "$base/standalone/index.html"       -o app/src/main/assets/kiosk/index.html
+          curl -fL "$base/dist/ha-3d-floorplan-card.js" -o app/src/main/assets/kiosk/ha-3d-floorplan-card.js
+          ls -l app/src/main/assets/kiosk
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: android-actions/setup-android@v3
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
+
+      - name: Build debug APK
+        run: gradle assembleDebug --no-daemon --stacktrace
+
+      - name: Name the APK
+        run: cp app/build/outputs/apk/debug/app-debug.apk bms-3d-floorplan.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bms-3d-floorplan-apk
+          path: bms-3d-floorplan.apk
+          if-no-files-found: error
+
+      - name: Attach APK to the release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" --title "${GITHUB_REF_NAME}" --notes "Android kiosk APK" || true
+          gh release upload "${GITHUB_REF_NAME}" bms-3d-floorplan.apk --clobber

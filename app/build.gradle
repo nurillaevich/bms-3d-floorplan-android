@@ -1,0 +1,29 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'uz.bms.floorplan3d'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId 'uz.bms.floorplan3d'
+        minSdk 26
+        targetSdk 34
+        versionCode 1
+        versionName '1.0.0'
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    // No external dependencies — just the framework WebView + Activity.
+}
