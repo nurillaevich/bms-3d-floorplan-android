@@ -9,6 +9,7 @@ import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.provider.Settings;
 import android.text.InputType;
 import android.view.Gravity;
 import android.view.View;
@@ -167,6 +168,21 @@ public class SettingsActivity extends Activity {
 
     private void installApk(File apk) {
         try {
+            // Android 8+: installing an APK needs "install unknown apps" granted to
+            // THIS app first, or the install intent silently does nothing. Send the
+            // user to that toggle, then they tap "Обновить" again.
+            if (!getPackageManager().canRequestPackageInstalls()) {
+                Toast.makeText(this,
+                        "Разрешите установку из этого источника, затем нажмите «Обновить приложение» ещё раз",
+                        Toast.LENGTH_LONG).show();
+                Intent grant = new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                        Uri.parse("package:" + getPackageName()));
+                grant.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                startActivity(grant);
+                update.setEnabled(true);
+                update.setText("Обновить приложение");
+                return;
+            }
             Uri uri = FileProvider.getUriForFile(this, getPackageName() + ".fileprovider", apk);
             Intent i = new Intent(Intent.ACTION_VIEW);
             i.setDataAndType(uri, "application/vnd.android.package-archive");

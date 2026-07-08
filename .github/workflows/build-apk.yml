@@ -29,9 +29,16 @@ jobs:
       - name: Pull the kiosk page + card from the integration
         run: |
           mkdir -p app/src/main/assets/kiosk
-          base="https://raw.githubusercontent.com/${CARD_REPO}/${CARD_REF}"
+          # Resolve the ref to an immutable commit SHA first, then fetch by SHA.
+          # A raw URL pinned to a SHA is never served stale, so the APK can't
+          # accidentally bundle a cached older card (the branch cache can lag).
+          SHA=$(curl -fsSL -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${CARD_REPO}/commits/${CARD_REF}" | jq -r .sha)
+          echo "Bundling card from ${CARD_REPO}@${SHA}"
+          base="https://raw.githubusercontent.com/${CARD_REPO}/${SHA}"
           curl -fL "$base/standalone/index.html"       -o app/src/main/assets/kiosk/index.html
           curl -fL "$base/dist/ha-3d-floorplan-card.js" -o app/src/main/assets/kiosk/ha-3d-floorplan-card.js
+          grep -o "CARD_VERSION[^,;]*" app/src/main/assets/kiosk/ha-3d-floorplan-card.js | head -1 || true
           ls -l app/src/main/assets/kiosk
 
       - uses: actions/setup-java@v4
