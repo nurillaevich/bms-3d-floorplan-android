@@ -10,17 +10,17 @@ android {
         applicationId 'uz.bms.floorplan3d'
         minSdk 26
         targetSdk 34
-        versionCode 6
-        versionName '1.1.4'
+        versionCode 7
+        versionName '1.1.5'
     }
 
     // A FIXED signing key, so every CI build is signed with the SAME
     // certificate. Without this each runner minted a throwaway debug key and
     // Android rejected updates with "conflicts with an existing package"
-    // (signature mismatch). The keystore is NOT in the repo — CI base64-decodes
-    // the SIGNING_P12_BASE64 secret into app/signing.p12 before assembling; the
-    // password comes from the SIGNING_PASSWORD env. If the keystore is absent
-    // (a local build with no secret), fall back to the default debug signing.
+    // (signature mismatch). The keystore is committed AES-encrypted
+    // (app/signing.p12.enc); CI decrypts it to app/signing.p12 with the
+    // SIGNING_STORE_KEY secret before assembling. If the decrypted keystore is
+    // absent (a local build with no secret), fall back to default debug signing.
     def keystoreFile = file('signing.p12')
     def keystorePassword = System.getenv('SIGNING_PASSWORD') ?: 'bms3dfloorplan'
     signingConfigs {

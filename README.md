@@ -45,11 +45,11 @@ gradle assembleDebug   # -> app/build/outputs/apk/debug/app-debug.apk
 ```
 
 The APK is signed with a **fixed keystore** so every build shares one
-certificate and the in-app updater can upgrade in place. The keystore is **not**
-in the repo — CI base64-decodes the `SIGNING_P12_BASE64` repository secret into
-`app/signing.p12` at build time. (Add it under *Settings → Secrets and variables
-→ Actions*. Without it, builds fall back to a throwaway key that installs fresh
-but can't update in place.)
+certificate and the in-app updater can upgrade in place. The keystore is
+committed **AES-encrypted** (`app/signing.p12.enc` — safe to be public); CI
+decrypts it with the short `SIGNING_STORE_KEY` repository secret at build time.
+(Add it under *Settings → Secrets and variables → Actions*. Without it, builds
+fall back to a throwaway key that installs fresh but can't update in place.)
 
 > Upgrading from a build made **before** the fixed key (each earlier one had a
 > random per-CI key) fails with *"conflicts with an existing package"* — that's

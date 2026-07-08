@@ -6,11 +6,11 @@ local.properties
 app/src/main/assets/kiosk/
 *.iml
 .idea/
-# Signing keystore is injected from a GitHub Actions secret at build time —
-# NEVER commit it (public repo). CI base64-decodes secrets.SIGNING_P12_BASE64
-# into app/signing.p12 before assembling.
+# The DECRYPTED keystore is transient (CI decrypts app/signing.p12.enc into it
+# with the SIGNING_STORE_KEY secret) — never commit the plaintext keystore.
+# The committed app/signing.p12.enc is AES-encrypted and safe to track.
 app/signing.p12
-*.p12
 *.jks
 *.keystore
 signing.p12.base64.txt
+store_key.txt

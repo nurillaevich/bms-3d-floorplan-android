@@ -52,34 +52,32 @@ jobs:
         with:
           gradle-version: '8.7'
 
-      - name: Decode the signing keystore
+      - name: Decrypt the signing keystore
         env:
-          SIGNING_P12_BASE64: ${{ secrets.SIGNING_P12_BASE64 }}
+          SIGNING_STORE_KEY: ${{ secrets.SIGNING_STORE_KEY }}
           SIGNING_PASSWORD: ${{ secrets.SIGNING_PASSWORD }}
         run: |
           # A FIXED signing key so every build shares one certificate and the
-          # in-app updater can upgrade in place. The keystore lives only in this
-          # secret (never in the repo); decode it here. If the secret is missing,
-          # the build falls back to a throwaway debug key (installs fresh, but
-          # will NOT update over a previous install).
-          if [ -z "${SIGNING_P12_BASE64:-}" ]; then
-            echo "::warning::SIGNING_P12_BASE64 not set — this APK uses a throwaway key and won't update in place. Add it in Settings → Secrets and variables → Actions."
+          # in-app updater can upgrade in place. The keystore is committed
+          # AES-encrypted (app/signing.p12.enc) — safe to be public; the short
+          # passphrase lives only in the SIGNING_STORE_KEY secret. If it's unset,
+          # fall back to a throwaway debug key (installs fresh, no in-place update).
+          if [ -z "${SIGNING_STORE_KEY:-}" ]; then
+            echo "::warning::SIGNING_STORE_KEY not set — throwaway key, no in-place updates. Add it in Settings → Secrets and variables → Actions."
             exit 0
           fi
-          # Strip any whitespace/newlines a copy-paste may have introduced, then
-          # decode (GNU base64 rejects stray spaces without --ignore-garbage).
-          printf '%s' "$SIGNING_P12_BASE64" | tr -d '[:space:]' | base64 --ignore-garbage -d > app/signing.p12
-          sz=$(stat -c%s app/signing.p12 2>/dev/null || echo 0)
-          echo "Decoded keystore: ${sz} bytes"
-          if [ "$sz" -lt 1000 ]; then
-            echo "::error::SIGNING_P12_BASE64 decoded to ${sz} bytes — the secret looks wrong or empty."
+          # Strip any whitespace a paste may add, so a stray newline can't break it.
+          KEY=$(printf '%s' "$SIGNING_STORE_KEY" | tr -d '[:space:]')
+          if ! openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 \
+                 -pass "pass:$KEY" -in app/signing.p12.enc -out app/signing.p12 2>/dev/null; then
+            echo "::error::Could not decrypt signing.p12.enc — the SIGNING_STORE_KEY secret is wrong."
             exit 1
           fi
           if keytool -list -keystore app/signing.p12 -storetype PKCS12 \
                -storepass "${SIGNING_PASSWORD:-bms3dfloorplan}" >/dev/null 2>&1; then
-            echo "Keystore validated (PKCS12 + password OK)."
+            echo "Keystore decrypted and validated."
           else
-            echo "::error::Keystore decoded but keytool can't open it — wrong password or corrupt secret value."
+            echo "::error::Decrypted, but keytool can't open the keystore (unexpected)."
             exit 1
           fi
 
