@@ -64,9 +64,9 @@ public class MainActivity extends Activity {
         FrameLayout root = new FrameLayout(this);
         root.addView(web, new FrameLayout.LayoutParams(-1, -1));
 
-        // Hidden re-config: long-press the top-right corner to reopen settings.
+        // Hidden re-config: long-press the bottom-left corner to reopen settings.
         View hot = new View(this);
-        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(dp(60), dp(60), Gravity.TOP | Gravity.END);
+        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(dp(60), dp(60), Gravity.BOTTOM | Gravity.START);
         hot.setLayoutParams(lp);
         hot.setOnLongClickListener(v -> {
             startActivity(new Intent(this, SettingsActivity.class));

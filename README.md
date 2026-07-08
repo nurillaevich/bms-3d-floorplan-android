@@ -25,7 +25,10 @@ there at build time, so the APK always bundles the current panel.
 3. On first launch, enter the HA address (e.g. `http://192.168.1.50:8123`) and a
    long-lived token (HA profile → Long-lived access tokens). Tablet and HA must
    be on the same Wi-Fi.
-4. To re-open settings later, **long-press the top-right corner**.
+4. To re-open settings later, **long-press the bottom-left corner**.
+5. In settings, **"Обновить приложение"** pulls the newest signed APK straight
+   from this repo's [Releases](https://github.com/nurillaevich/bms-3d-floorplan-android/releases)
+   and launches the installer — no need to re-download by hand.
 
 > Tip: set an edit PIN in the card (in HA) so the kiosk stays view/control-only.
 

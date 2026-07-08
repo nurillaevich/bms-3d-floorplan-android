@@ -4,7 +4,11 @@ import android.app.Activity;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.content.pm.PackageInfo;
+import android.net.Uri;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.text.InputType;
 import android.view.Gravity;
 import android.view.View;
@@ -14,8 +18,31 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 
-/** First-run / re-config screen: Home Assistant address + long-lived token. */
+import androidx.core.content.FileProvider;
+
+import org.json.JSONArray;
+import org.json.JSONObject;
+
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.InputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.nio.charset.StandardCharsets;
+
+/**
+ * First-run / re-config screen: Home Assistant address + long-lived token, plus a
+ * one-tap "update the app" button that pulls the latest signed APK straight from
+ * this project's GitHub releases and launches the installer.
+ */
 public class SettingsActivity extends Activity {
+
+    // Where the auto-update looks for a newer APK.
+    private static final String RELEASES_API =
+            "https://api.github.com/repos/nurillaevich/bms-3d-floorplan-android/releases/latest";
+
+    private final Handler ui = new Handler(Looper.getMainLooper());
+    private Button update;
 
     @Override
     protected void onCreate(Bundle state) {
@@ -75,8 +102,143 @@ public class SettingsActivity extends Activity {
         });
         box.addView(save);
 
+        // --- GitHub auto-update -------------------------------------------------
+        View div = new View(this);
+        div.setBackgroundColor(0xFF262A33);
+        LinearLayout.LayoutParams dl = new LinearLayout.LayoutParams(-1, Math.max(1, Math.round(d)));
+        dl.topMargin = Math.round(22 * d);
+        div.setLayoutParams(dl);
+        box.addView(div);
+
+        update = new Button(this);
+        update.setText("Обновить приложение");
+        LinearLayout.LayoutParams up = new LinearLayout.LayoutParams(-1, -2);
+        up.topMargin = Math.round(16 * d);
+        update.setLayoutParams(up);
+        update.setOnClickListener(v -> checkAndUpdate());
+        box.addView(update);
+
+        TextView ver = new TextView(this);
+        ver.setText("Установлено: v" + installedVersion() + " · источник: GitHub");
+        ver.setTextColor(0xFF677079);
+        ver.setTextSize(12);
+        LinearLayout.LayoutParams vp = new LinearLayout.LayoutParams(-1, -2);
+        vp.topMargin = Math.round(8 * d);
+        ver.setLayoutParams(vp);
+        box.addView(ver);
+
         root.addView(box);
         setContentView(root);
+    }
+
+    /** Fetch the latest release, download its APK, and launch the installer. */
+    private void checkAndUpdate() {
+        update.setEnabled(false);
+        update.setText("Проверка обновлений…");
+        new Thread(() -> {
+            try {
+                JSONObject rel = new JSONObject(httpGet(RELEASES_API));
+                String tag = rel.optString("tag_name", "");
+                String apkUrl = null;
+                JSONArray assets = rel.optJSONArray("assets");
+                for (int i = 0; assets != null && i < assets.length(); i++) {
+                    JSONObject a = assets.getJSONObject(i);
+                    if (a.optString("name", "").toLowerCase().endsWith(".apk")) {
+                        apkUrl = a.optString("browser_download_url", null);
+                        break;
+                    }
+                }
+                if (apkUrl == null) {
+                    fail("В последнем релизе нет .apk файла");
+                    return;
+                }
+
+                final String label = tag.isEmpty() ? "" : (" " + tag);
+                ui.post(() -> update.setText("Загрузка" + label + "…"));
+
+                File apk = new File(getExternalCacheDir(), "update.apk");
+                download(apkUrl, apk);
+                ui.post(() -> installApk(apk));
+            } catch (Exception e) {
+                fail("Не удалось обновить: " + e.getMessage());
+            }
+        }).start();
+    }
+
+    private void installApk(File apk) {
+        try {
+            Uri uri = FileProvider.getUriForFile(this, getPackageName() + ".fileprovider", apk);
+            Intent i = new Intent(Intent.ACTION_VIEW);
+            i.setDataAndType(uri, "application/vnd.android.package-archive");
+            i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
+            startActivity(i);
+            update.setEnabled(true);
+            update.setText("Обновить приложение");
+        } catch (Exception e) {
+            fail("Не удалось открыть установщик: " + e.getMessage());
+        }
+    }
+
+    private String httpGet(String spec) throws Exception {
+        HttpURLConnection c = (HttpURLConnection) new URL(spec).openConnection();
+        try {
+            c.setRequestProperty("User-Agent", "bms-3d-floorplan-android");
+            c.setRequestProperty("Accept", "application/vnd.github+json");
+            c.setConnectTimeout(15000);
+            c.setReadTimeout(20000);
+            int code = c.getResponseCode();
+            if (code != 200) throw new Exception("GitHub HTTP " + code);
+            return readAll(c.getInputStream());
+        } finally {
+            c.disconnect();
+        }
+    }
+
+    private void download(String spec, File out) throws Exception {
+        HttpURLConnection c = (HttpURLConnection) new URL(spec).openConnection();
+        try {
+            c.setInstanceFollowRedirects(true);
+            c.setRequestProperty("User-Agent", "bms-3d-floorplan-android");
+            c.setConnectTimeout(15000);
+            c.setReadTimeout(60000);
+            int code = c.getResponseCode();
+            if (code != 200) throw new Exception("Download HTTP " + code);
+            try (InputStream in = c.getInputStream(); FileOutputStream fo = new FileOutputStream(out)) {
+                byte[] buf = new byte[8192];
+                int n;
+                while ((n = in.read(buf)) != -1) fo.write(buf, 0, n);
+                fo.flush();
+            }
+        } finally {
+            c.disconnect();
+        }
+    }
+
+    private static String readAll(InputStream is) throws Exception {
+        try (InputStream in = is) {
+            java.io.ByteArrayOutputStream bo = new java.io.ByteArrayOutputStream();
+            byte[] buf = new byte[8192];
+            int n;
+            while ((n = in.read(buf)) != -1) bo.write(buf, 0, n);
+            return new String(bo.toByteArray(), StandardCharsets.UTF_8);
+        }
+    }
+
+    private void fail(String msg) {
+        ui.post(() -> {
+            Toast.makeText(this, msg, Toast.LENGTH_LONG).show();
+            update.setEnabled(true);
+            update.setText("Обновить приложение");
+        });
+    }
+
+    private String installedVersion() {
+        try {
+            PackageInfo pi = getPackageManager().getPackageInfo(getPackageName(), 0);
+            return pi.versionName;
+        } catch (Exception e) {
+            return "?";
+        }
     }
 
     private EditText field(String value, String hint, int inputType, float d, LinearLayout parent) {
