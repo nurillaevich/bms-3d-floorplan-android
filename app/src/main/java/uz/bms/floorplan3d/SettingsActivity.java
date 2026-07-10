@@ -1,6 +1,7 @@
 package uz.bms.floorplan3d;
 
 import android.app.Activity;
+import android.app.ActivityManager;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
@@ -14,6 +15,7 @@ import android.text.InputType;
 import android.view.Gravity;
 import android.view.View;
 import android.widget.Button;
+import android.widget.CheckBox;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.TextView;
@@ -128,8 +130,52 @@ public class SettingsActivity extends Activity {
         ver.setLayoutParams(vp);
         box.addView(ver);
 
+        // --- Kiosk lock ---------------------------------------------------------
+        View div2 = new View(this);
+        div2.setBackgroundColor(0xFF262A33);
+        LinearLayout.LayoutParams dl2 = new LinearLayout.LayoutParams(-1, Math.max(1, Math.round(d)));
+        dl2.topMargin = Math.round(22 * d);
+        div2.setLayoutParams(dl2);
+        box.addView(div2);
+
+        CheckBox kiosk = new CheckBox(this);
+        kiosk.setText("Режим киоска (блокировать выход)");
+        kiosk.setTextColor(0xFFFFFFFF);
+        kiosk.setChecked(p.getBoolean(MainActivity.KEY_KIOSK, true));
+        LinearLayout.LayoutParams kp = new LinearLayout.LayoutParams(-1, -2);
+        kp.topMargin = Math.round(12 * d);
+        kiosk.setLayoutParams(kp);
+        kiosk.setOnCheckedChangeListener((b, checked) -> {
+            p.edit().putBoolean(MainActivity.KEY_KIOSK, checked).apply();
+            if (!checked) stopKioskLock(); // unlock right away
+        });
+        box.addView(kiosk);
+
+        Button exit = new Button(this);
+        exit.setText("Выйти из приложения");
+        LinearLayout.LayoutParams ep = new LinearLayout.LayoutParams(-1, -2);
+        ep.topMargin = Math.round(12 * d);
+        exit.setLayoutParams(ep);
+        exit.setOnClickListener(v -> {
+            stopKioskLock();
+            finishAffinity(); // close the whole app → back to the home screen
+        });
+        box.addView(exit);
+
         root.addView(box);
         setContentView(root);
+    }
+
+    /** Leave Lock Task Mode if we're in it (so the app can be exited). */
+    private void stopKioskLock() {
+        try {
+            ActivityManager am = (ActivityManager) getSystemService(ACTIVITY_SERVICE);
+            if (am != null && am.getLockTaskModeState() != ActivityManager.LOCK_TASK_MODE_NONE) {
+                stopLockTask();
+            }
+        } catch (Exception ignored) {
+            // not pinned / OEM quirk — nothing to undo
+        }
     }
 
     /** Fetch the latest release, download its APK, and launch the installer. */

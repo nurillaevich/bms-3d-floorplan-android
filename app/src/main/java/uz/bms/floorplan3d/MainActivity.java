@@ -1,6 +1,7 @@
 package uz.bms.floorplan3d;
 
 import android.app.Activity;
+import android.app.ActivityManager;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
@@ -30,6 +31,7 @@ public class MainActivity extends Activity {
     public static final String PREFS = "bms3d";
     public static final String KEY_URL = "ha_url";
     public static final String KEY_TOKEN = "ha_token";
+    public static final String KEY_KIOSK = "kiosk_lock"; // screen-pinning kiosk mode
 
     private WebView web;
 
@@ -116,6 +118,32 @@ public class MainActivity extends Activity {
     protected void onResume() {
         super.onResume();
         immersive();
+        enterKiosk();
+    }
+
+    /**
+     * Kiosk lock (screen pinning / Lock Task Mode): blocks Home & Recents and
+     * restricts the status-bar pull-down, so the panel can't be left. Exit is
+     * only via the hidden bottom-left settings → "Exit kiosk" (stopLockTask).
+     * Enabled unless the user turned it off in settings.
+     *
+     * Without device-owner, Android still lets a user unpin by holding Back +
+     * Overview; to fully block that too, one-time provision this app as device
+     * owner (see the README).
+     */
+    private void enterKiosk() {
+        SharedPreferences p = getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+        if (!p.getBoolean(KEY_KIOSK, true)) return; // kiosk lock disabled in settings
+        try {
+            ActivityManager am = (ActivityManager) getSystemService(ACTIVITY_SERVICE);
+            int state = (am != null) ? am.getLockTaskModeState() : ActivityManager.LOCK_TASK_MODE_NONE;
+            if (state == ActivityManager.LOCK_TASK_MODE_NONE) {
+                startLockTask();
+            }
+        } catch (Exception ignored) {
+            // Some OEM ROMs disallow lock task without device-owner — immersive
+            // fullscreen + the blocked buttons still apply.
+        }
     }
 
     @Override

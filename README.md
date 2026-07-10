@@ -32,6 +32,19 @@ there at build time, so the APK always bundles the current panel.
 
 > Tip: set an edit PIN in the card (in HA) so the kiosk stays view/control-only.
 
+## Kiosk lock
+
+On by default: the app pins itself (Android **Lock Task Mode**), which blocks the
+Home & Recents buttons and the status-bar pull-down, so the panel can't be left.
+**To exit:** long-press the bottom-left corner → settings → **"Выйти из
+приложения"** (or untick *Режим киоска* there).
+
+Without device-owner, Android still lets someone unpin by **holding Back +
+Overview**. That's enough for a normal wall panel. To block even that — a fully
+tamper-proof kiosk — provision the app as **device owner** (a one-time ADB step
+on a tablet with no Google account added); that also removes the "Screen pinned"
+toast. This extra hardening is optional and not required for day-to-day use.
+
 ## Build
 
 CI (`Build APK`) builds it on every push, version tag, and on demand. Locally you
