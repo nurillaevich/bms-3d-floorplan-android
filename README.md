@@ -34,16 +34,28 @@ there at build time, so the APK always bundles the current panel.
 
 ## Kiosk lock
 
-On by default: the app pins itself (Android **Lock Task Mode**), which blocks the
-Home & Recents buttons and the status-bar pull-down, so the panel can't be left.
-**To exit:** long-press the bottom-left corner → settings → **"Выйти из
-приложения"** (or untick *Режим киоска* there).
+On by default: the app pins itself (Android **Lock Task Mode**), blocking the
+Home & Recents buttons and the status-bar pull-down, and it **relaunches after a
+reboot** — so the panel is always up. **To exit:** long-press the bottom-left
+corner → settings → **"Выйти из приложения"** (or untick *Режим киоска* there).
 
-Without device-owner, Android still lets someone unpin by **holding Back +
-Overview**. That's enough for a normal wall panel. To block even that — a fully
-tamper-proof kiosk — provision the app as **device owner** (a one-time ADB step
-on a tablet with no Google account added); that also removes the "Screen pinned"
-toast. This extra hardening is optional and not required for day-to-day use.
+**Fully tamper-proof (device owner).** Without device-owner, Android still lets
+someone unpin by holding **Back + Overview**. To block that too — no toast, no
+escape — provision the app as **device owner** *once*:
+
+1. On the tablet: remove every Google/other account (Settings → Accounts). Device
+   owner can only be set when no accounts exist.
+2. Enable USB debugging (Settings → Developer options), connect over USB, then:
+
+   ```
+   adb shell dpm set-device-owner uz.bms.floorplan3d/.AdminReceiver
+   ```
+
+3. Relaunch the app. Lock Task is now un-escapable; it also survives reboots.
+
+To undo: exit via the hidden settings, then
+`adb shell dpm remove-active-admin uz.bms.floorplan3d/.AdminReceiver` (or factory
+reset). This step is optional — the default pin is fine for a normal wall panel.
 
 ## Build
 

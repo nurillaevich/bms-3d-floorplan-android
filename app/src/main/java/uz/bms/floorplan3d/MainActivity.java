@@ -2,6 +2,8 @@ package uz.bms.floorplan3d;
 
 import android.app.Activity;
 import android.app.ActivityManager;
+import android.app.admin.DevicePolicyManager;
+import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
@@ -135,6 +137,13 @@ public class MainActivity extends Activity {
         SharedPreferences p = getSharedPreferences(PREFS, Context.MODE_PRIVATE);
         if (!p.getBoolean(KEY_KIOSK, true)) return; // kiosk lock disabled in settings
         try {
+            // If provisioned as DEVICE OWNER, allow-list ourselves so Lock Task Mode
+            // becomes un-escapable (no "screen pinned" toast, no Back+Overview exit).
+            DevicePolicyManager dpm = (DevicePolicyManager) getSystemService(DEVICE_POLICY_SERVICE);
+            if (dpm != null && dpm.isDeviceOwnerApp(getPackageName())) {
+                ComponentName admin = new ComponentName(this, AdminReceiver.class);
+                dpm.setLockTaskPackages(admin, new String[]{ getPackageName() });
+            }
             ActivityManager am = (ActivityManager) getSystemService(ACTIVITY_SERVICE);
             int state = (am != null) ? am.getLockTaskModeState() : ActivityManager.LOCK_TASK_MODE_NONE;
             if (state == ActivityManager.LOCK_TASK_MODE_NONE) {
