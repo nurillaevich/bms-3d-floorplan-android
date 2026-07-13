@@ -39,6 +39,13 @@ Home & Recents buttons and the status-bar pull-down, and it **relaunches after a
 reboot** — so the panel is always up. **To exit:** long-press the bottom-left
 corner → settings → **"Выйти из приложения"** (or untick *Режим киоска* there).
 
+**Make it the home screen (recommended, no ADB).** The app also registers as a
+launcher, so you can set it as the tablet's default desktop — then the **Home
+button returns to the kiosk** instead of leaving it. On the tablet: *Settings →
+Home screen / "Рабочий стол"* (or long-press Home) → pick **BMS 3D Floor Plan**
+→ set as default / Always. Combined with the pin + boot-relaunch, this keeps the
+panel locked without any ADB.
+
 **Fully tamper-proof (device owner).** Without device-owner, Android still lets
 someone unpin by holding **Back + Overview**. To block that too — no toast, no
 escape — provision the app as **device owner** *once*:

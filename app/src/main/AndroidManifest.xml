@@ -26,6 +26,15 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <!-- Register as a HOME (launcher) app too, so it can be set as the
+                 tablet's default desktop ("Рабочий стол"). Then the Home button
+                 returns to the kiosk instead of leaving it — the strongest lock
+                 short of device-owner. -->
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.HOME" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
         </activity>
 
         <activity
