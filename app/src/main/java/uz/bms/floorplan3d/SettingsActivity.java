@@ -151,6 +151,25 @@ public class SettingsActivity extends Activity {
         });
         box.addView(kiosk);
 
+        // Open the Android "home app" picker (the «Рабочий стол» list) so the user
+        // can set this app as the default desktop — then Home returns to the kiosk.
+        Button home = new Button(this);
+        home.setText("Сделать домашним экраном");
+        LinearLayout.LayoutParams hlp = new LinearLayout.LayoutParams(-1, -2);
+        hlp.topMargin = Math.round(12 * d);
+        home.setLayoutParams(hlp);
+        home.setOnClickListener(v -> {
+            try {
+                startActivity(new Intent(Settings.ACTION_HOME_SETTINGS)
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+            } catch (Exception e) {
+                Toast.makeText(this,
+                        "Откройте: Настройки → Приложения → Приложение по умолчанию → Рабочий стол",
+                        Toast.LENGTH_LONG).show();
+            }
+        });
+        box.addView(home);
+
         Button exit = new Button(this);
         exit.setText("Выйти из приложения");
         LinearLayout.LayoutParams ep = new LinearLayout.LayoutParams(-1, -2);
