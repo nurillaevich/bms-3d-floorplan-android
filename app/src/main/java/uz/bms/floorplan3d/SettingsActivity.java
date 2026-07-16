@@ -23,15 +23,12 @@ import android.widget.Toast;
 
 import androidx.core.content.FileProvider;
 
-import org.json.JSONArray;
-import org.json.JSONObject;
 
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
-import java.nio.charset.StandardCharsets;
 
 /**
  * First-run / re-config screen: Home Assistant address + long-lived token, plus a
@@ -40,9 +37,16 @@ import java.nio.charset.StandardCharsets;
  */
 public class SettingsActivity extends Activity {
 
-    // Where the auto-update looks for a newer APK.
-    private static final String RELEASES_API =
-            "https://api.github.com/repos/nurillaevich/bms-3d-floorplan-android/releases/latest";
+    // Where the auto-update looks for a newer APK. We resolve the latest tag via
+    // the WEB "latest" redirect (github.com/.../releases/latest → 302 to
+    // /releases/tag/<tag>), NOT the REST API (api.github.com): the API caps
+    // unauthenticated calls at 60/hour per IP and returns HTTP 403 once that is
+    // spent, whereas the web redirect + the release asset CDN are not so limited.
+    private static final String RELEASES_LATEST =
+            "https://github.com/nurillaevich/bms-3d-floorplan-android/releases/latest";
+    private static final String RELEASE_DL =
+            "https://github.com/nurillaevich/bms-3d-floorplan-android/releases/download/";
+    private static final String APK_ASSET = "bms-3d-floorplan.apk";
 
     private final Handler ui = new Handler(Looper.getMainLooper());
     private Button update;
@@ -203,24 +207,24 @@ public class SettingsActivity extends Activity {
         update.setText("Проверка обновлений…");
         new Thread(() -> {
             try {
-                JSONObject rel = new JSONObject(httpGet(RELEASES_API));
-                String tag = rel.optString("tag_name", "");
-                String apkUrl = null;
-                JSONArray assets = rel.optJSONArray("assets");
-                for (int i = 0; assets != null && i < assets.length(); i++) {
-                    JSONObject a = assets.getJSONObject(i);
-                    if (a.optString("name", "").toLowerCase().endsWith(".apk")) {
-                        apkUrl = a.optString("browser_download_url", null);
-                        break;
-                    }
+                String tag = resolveLatestTag(); // e.g. "v1.1.25"
+                if (tag == null || tag.isEmpty()) {
+                    fail("Не удалось определить последнюю версию");
+                    return;
                 }
-                if (apkUrl == null) {
-                    fail("В последнем релизе нет .apk файла");
+                // Already on the latest tag — nothing to download.
+                if (tag.equals("v" + installedVersion())) {
+                    ui.post(() -> {
+                        update.setEnabled(true);
+                        update.setText("Обновить приложение");
+                        Toast.makeText(this, "Уже установлена последняя версия (" + tag + ")",
+                                Toast.LENGTH_LONG).show();
+                    });
                     return;
                 }
 
-                final String label = tag.isEmpty() ? "" : (" " + tag);
-                ui.post(() -> update.setText("Загрузка" + label + "…"));
+                final String apkUrl = RELEASE_DL + tag + "/" + APK_ASSET;
+                ui.post(() -> update.setText("Загрузка " + tag + "…"));
 
                 File apk = new File(getExternalCacheDir(), "update.apk");
                 download(apkUrl, apk);
@@ -229,6 +233,29 @@ public class SettingsActivity extends Activity {
                 fail("Не удалось обновить: " + e.getMessage());
             }
         }).start();
+    }
+
+    /** Resolve the latest release's tag (e.g. "v1.1.25") from the web "latest"
+     *  redirect's Location header. Avoids the rate-limited REST API (which 403s
+     *  after 60 unauthenticated requests/hour), so the updater keeps working. */
+    private String resolveLatestTag() throws Exception {
+        HttpURLConnection c = (HttpURLConnection) new URL(RELEASES_LATEST).openConnection();
+        try {
+            c.setInstanceFollowRedirects(false); // read the redirect target ourselves
+            c.setRequestProperty("User-Agent", "bms-3d-floorplan-android");
+            c.setConnectTimeout(15000);
+            c.setReadTimeout(20000);
+            int code = c.getResponseCode();
+            String loc = c.getHeaderField("Location");
+            if (loc != null && (code == 301 || code == 302 || code == 303 || code == 307 || code == 308)) {
+                // .../releases/tag/v1.1.25  ->  v1.1.25
+                int slash = loc.lastIndexOf('/');
+                if (slash >= 0 && slash < loc.length() - 1) return loc.substring(slash + 1);
+            }
+            throw new Exception("GitHub HTTP " + code);
+        } finally {
+            c.disconnect();
+        }
     }
 
     private void installApk(File apk) {
@@ -260,21 +287,6 @@ public class SettingsActivity extends Activity {
         }
     }
 
-    private String httpGet(String spec) throws Exception {
-        HttpURLConnection c = (HttpURLConnection) new URL(spec).openConnection();
-        try {
-            c.setRequestProperty("User-Agent", "bms-3d-floorplan-android");
-            c.setRequestProperty("Accept", "application/vnd.github+json");
-            c.setConnectTimeout(15000);
-            c.setReadTimeout(20000);
-            int code = c.getResponseCode();
-            if (code != 200) throw new Exception("GitHub HTTP " + code);
-            return readAll(c.getInputStream());
-        } finally {
-            c.disconnect();
-        }
-    }
-
     private void download(String spec, File out) throws Exception {
         HttpURLConnection c = (HttpURLConnection) new URL(spec).openConnection();
         try {
@@ -292,16 +304,6 @@ public class SettingsActivity extends Activity {
             }
         } finally {
             c.disconnect();
-        }
-    }
-
-    private static String readAll(InputStream is) throws Exception {
-        try (InputStream in = is) {
-            java.io.ByteArrayOutputStream bo = new java.io.ByteArrayOutputStream();
-            byte[] buf = new byte[8192];
-            int n;
-            while ((n = in.read(buf)) != -1) bo.write(buf, 0, n);
-            return new String(bo.toByteArray(), StandardCharsets.UTF_8);
         }
     }
 
