@@ -233,6 +233,67 @@ public class SettingsActivity extends Activity {
                     Toast.LENGTH_SHORT).show();
         });
 
+        // --- Page behaviour ---------------------------------------------------
+        TextView behTitle = new TextView(this);
+        behTitle.setText("Страница");
+        behTitle.setTextColor(0xFFF3A83C);
+        behTitle.setTextSize(15);
+        LinearLayout.LayoutParams btp = new LinearLayout.LayoutParams(-1, -2);
+        btp.topMargin = Math.round(24 * d);
+        behTitle.setLayoutParams(btp);
+        box.addView(behTitle);
+
+        final CheckBox js = new CheckBox(this);
+        js.setText("Включить JavaScript");
+        js.setTextColor(0xFFFFFFFF);
+        js.setChecked(p.getBoolean(MainActivity.KEY_JS, true));
+        LinearLayout.LayoutParams jp = new LinearLayout.LayoutParams(-1, -2);
+        jp.topMargin = Math.round(10 * d);
+        js.setLayoutParams(jp);
+        js.setOnCheckedChangeListener((b, checked) -> {
+            p.edit().putBoolean(MainActivity.KEY_JS, checked).apply();
+            // The 3D panel is a JS app — say so rather than let it silently break.
+            Toast.makeText(this,
+                    checked ? "JavaScript включён" : "JavaScript выключен — 3D-план не запустится",
+                    Toast.LENGTH_LONG).show();
+        });
+        box.addView(js);
+
+        TextView arLbl = new TextView(this);
+        arLbl.setText("Автообновление страницы (секунды), 0 = выкл.");
+        arLbl.setTextColor(0xFFB9C0CC);
+        arLbl.setTextSize(13);
+        LinearLayout.LayoutParams alp = new LinearLayout.LayoutParams(-1, -2);
+        alp.topMargin = Math.round(14 * d);
+        arLbl.setLayoutParams(alp);
+        box.addView(arLbl);
+
+        final EditText autoReload = field(
+                String.valueOf(p.getInt(MainActivity.KEY_AUTO_RELOAD, 0)),
+                "0", InputType.TYPE_CLASS_NUMBER, d, box);
+        autoReload.setOnFocusChangeListener((v, has) -> {
+            if (has) return;
+            int secs;
+            try {
+                secs = Integer.parseInt(autoReload.getText().toString().trim());
+            } catch (NumberFormatException e) {
+                secs = 0;
+            }
+            if (secs < 0) secs = 0;
+            p.edit().putInt(MainActivity.KEY_AUTO_RELOAD, secs).apply();
+            autoReload.setText(String.valueOf(secs));
+        });
+
+        // --- Startup & permissions -------------------------------------------
+        TextView startTitle = new TextView(this);
+        startTitle.setText("Запуск и разрешения");
+        startTitle.setTextColor(0xFFF3A83C);
+        startTitle.setTextSize(15);
+        LinearLayout.LayoutParams stp = new LinearLayout.LayoutParams(-1, -2);
+        stp.topMargin = Math.round(24 * d);
+        startTitle.setLayoutParams(stp);
+        box.addView(startTitle);
+
         // Open the Android "home app" picker (the «Рабочий стол» list) so the user
         // can set this app as the default desktop — then Home returns to the kiosk.
         Button home = new Button(this);
@@ -264,7 +325,13 @@ public class SettingsActivity extends Activity {
         box.addView(exit);
 
         root.addView(box);
-        setContentView(root);
+        // There are now more settings than fit a tablet screen, so the panel has
+        // to scroll — without this the last sections are simply unreachable.
+        android.widget.ScrollView scroller = new android.widget.ScrollView(this);
+        scroller.setBackgroundColor(0xFF14161B);
+        scroller.setFillViewport(true);
+        scroller.addView(root);
+        setContentView(scroller);
     }
 
     /** Leave Lock Task Mode if we're in it (so the app can be exited). */
@@ -410,7 +477,14 @@ public class SettingsActivity extends Activity {
         e.setSingleLine(true);
         e.setTextColor(0xFFFFFFFF);
         e.setHintTextColor(0xFF677079);
-        int gp = Math.round(10 * d);
+        // Without an explicit background the platform draws its default filled
+        // box, which on this dark panel came out as a glaring white slab.
+        android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
+        bg.setColor(0xFF1B1E25);
+        bg.setCornerRadius(10 * d);
+        bg.setStroke(Math.max(1, Math.round(d)), 0xFF2E333D);
+        e.setBackground(bg);
+        int gp = Math.round(12 * d);
         e.setPadding(gp, gp, gp, gp);
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
         lp.topMargin = Math.round(12 * d);

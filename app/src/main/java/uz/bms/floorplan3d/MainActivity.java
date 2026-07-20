@@ -9,6 +9,8 @@ import android.content.Intent;
 import android.content.SharedPreferences;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.view.Gravity;
 import android.view.View;
 import android.view.WindowManager;
@@ -34,8 +36,13 @@ public class MainActivity extends Activity {
     public static final String KEY_URL = "ha_url";
     public static final String KEY_TOKEN = "ha_token";
     public static final String KEY_KIOSK = "kiosk_lock"; // screen-pinning kiosk mode
+    public static final String KEY_JS = "javascript_enabled";
+    /** Seconds between automatic page reloads. 0 = off. */
+    public static final String KEY_AUTO_RELOAD = "auto_reload_seconds";
 
     private WebView web;
+    private final Handler reloadHandler = new Handler(Looper.getMainLooper());
+    private Runnable autoReload;
 
     @Override
     protected void onCreate(Bundle state) {
@@ -53,7 +60,8 @@ public class MainActivity extends Activity {
 
         web = new WebView(this);
         WebSettings s = web.getSettings();
-        s.setJavaScriptEnabled(true);
+        // On by default — the 3D panel is a JS app and won't run without it.
+        s.setJavaScriptEnabled(p.getBoolean(KEY_JS, true));
         s.setDomStorageEnabled(true);
         s.setDatabaseEnabled(true);
         s.setAllowFileAccess(true);
@@ -124,12 +132,38 @@ public class MainActivity extends Activity {
         // Remote control (HTTP) can reach the page only while it is on screen.
         KioskBus.setHandler(remoteHandler);
         RemoteHttpService.sync(this);
+        startAutoReload();
     }
 
     @Override
     protected void onPause() {
         KioskBus.clearHandler(remoteHandler);
+        stopAutoReload(); // don't reload a page nobody is looking at
         super.onPause();
+    }
+
+    /** Optional periodic reload (settings → "Автообновление страницы"). Off at 0,
+     *  which is the default — the panel already syncs its own data live. */
+    private void startAutoReload() {
+        stopAutoReload();
+        int secs = getSharedPreferences(PREFS, Context.MODE_PRIVATE).getInt(KEY_AUTO_RELOAD, 0);
+        if (secs <= 0) return;
+        final long period = secs * 1000L;
+        autoReload = new Runnable() {
+            @Override
+            public void run() {
+                if (web != null) web.reload();
+                reloadHandler.postDelayed(this, period);
+            }
+        };
+        reloadHandler.postDelayed(autoReload, period);
+    }
+
+    private void stopAutoReload() {
+        if (autoReload != null) {
+            reloadHandler.removeCallbacks(autoReload);
+            autoReload = null;
+        }
     }
 
     /** Commands from RemoteHttpService, marshalled onto the UI thread. */
@@ -212,6 +246,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onDestroy() {
         KioskBus.clearHandler(remoteHandler);
+        stopAutoReload();
         if (web != null) {
             web.destroy();
             web = null;
