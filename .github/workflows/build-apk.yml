@@ -95,7 +95,20 @@ jobs:
       - name: Build debug APK
         env:
           SIGNING_PASSWORD: ${{ secrets.SIGNING_PASSWORD }}
-        run: gradle assembleDebug --no-daemon --stacktrace
+        run: |
+          # Tee the build so a failure can be read from the run summary. Raw job
+          # logs need an authenticated API call; the step summary is public, and
+          # without it a compile error here is invisible from outside.
+          set -o pipefail
+          if ! gradle assembleDebug --no-daemon --stacktrace 2>&1 | tee /tmp/build.log; then
+            {
+              echo '### Build failed'
+              echo '```'
+              grep -E "error:|FAILURE:|Execution failed|Caused by:|Could not (find|resolve)|\.java:[0-9]+" /tmp/build.log                 | head -40
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
 
       - name: Name the APK
         run: cp app/build/outputs/apk/debug/app-debug.apk bms-3d-floorplan.apk
