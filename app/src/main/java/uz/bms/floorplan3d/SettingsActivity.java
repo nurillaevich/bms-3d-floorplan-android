@@ -199,14 +199,13 @@ public class SettingsActivity extends Activity {
                 return;
             }
             String ip = RemoteHttpService.localIp(this);
+            String nl = System.getProperty("line.separator", "\n");
             rcHint.setText("http://" + (ip == null ? "<ip-планшета>" : ip) + ":"
                     + RemoteHttpService.port(this) + "/?cmd=screenOn&password="
                     + RemoteHttpService.password(this)
-                    + "
-
-Команды: screenOn, screenOff, reload, loadStartUrl,
-"
-                    + "loadUrl&url=..., getInfo");
+                    + nl + nl
+                    + "Команды: screenOn, screenOff, reload," + nl
+                    + "loadStartUrl, loadUrl&url=..., getInfo");
         };
         refreshRcHint.run();
 
