@@ -2,6 +2,7 @@ package uz.bms.floorplan3d;
 
 import android.app.Activity;
 import android.app.ActivityManager;
+import android.app.AlertDialog;
 import android.app.admin.DevicePolicyManager;
 import android.content.ComponentName;
 import android.content.Context;
@@ -14,9 +15,12 @@ import android.os.Looper;
 import android.view.Gravity;
 import android.view.View;
 import android.view.WindowManager;
+import android.net.http.SslError;
+import android.webkit.SslErrorHandler;
 import android.webkit.WebChromeClient;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
+import android.webkit.WebViewClient;
 import android.widget.FrameLayout;
 
 import java.io.BufferedReader;
@@ -72,6 +76,53 @@ public class MainActivity extends Activity {
         s.setAllowFileAccessFromFileURLs(true);
         s.setAllowUniversalAccessFromFileURLs(true);
         web.setWebChromeClient(new WebChromeClient());
+        web.setWebViewClient(new WebViewClient() {
+            @Override
+            public void onReceivedSslError(WebView view, final SslErrorHandler handler,
+                                           SslError error) {
+                // LAN kit (intercoms, NVRs) serves HTTPS with a self-signed cert.
+                // Blanket-accepting would also cover a real MITM on the Home
+                // Assistant connection — which carries a long-lived token — so
+                // ask once per host and remember only what was accepted.
+                final String host = TrustedHosts.hostOf(error.getUrl());
+                if (host != null && TrustedHosts.isTrusted(MainActivity.this, host)) {
+                    handler.proceed();
+                    return;
+                }
+                if (isFinishing()) {
+                    handler.cancel();
+                    return;
+                }
+                String reason;
+                switch (error.getPrimaryError()) {
+                    case SslError.SSL_UNTRUSTED:
+                        reason = "сертификат выдан неизвестным центром (самоподписанный)";
+                        break;
+                    case SslError.SSL_EXPIRED:
+                        reason = "срок действия сертификата истёк";
+                        break;
+                    case SslError.SSL_IDMISMATCH:
+                        reason = "имя в сертификате не совпадает с адресом";
+                        break;
+                    case SslError.SSL_NOTYETVALID:
+                        reason = "сертификат ещё не вступил в силу";
+                        break;
+                    default:
+                        reason = "сертификат не прошёл проверку";
+                }
+                new AlertDialog.Builder(MainActivity.this)
+                        .setTitle("Небезопасное соединение")
+                        .setMessage(host + "\n\n" + reason
+                                + "\n\nРазрешайте только для своего оборудования в локальной сети.")
+                        .setPositiveButton("Разрешить", (dlg, w) -> {
+                            TrustedHosts.trust(MainActivity.this, host);
+                            handler.proceed();
+                        })
+                        .setNegativeButton("Отмена", (dlg, w) -> handler.cancel())
+                        .setOnCancelListener(dlg -> handler.cancel())
+                        .show();
+            }
+        });
 
         FrameLayout root = new FrameLayout(this);
         root.addView(web, new FrameLayout.LayoutParams(-1, -1));

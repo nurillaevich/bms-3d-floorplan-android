@@ -284,6 +284,32 @@ public class SettingsActivity extends Activity {
             autoReload.setText(String.valueOf(secs));
         });
 
+        // Certificates the operator accepted for LAN kit (intercom, NVR…), with a
+        // way to take that back — an accepted certificate is a standing decision.
+        final java.util.Set<String> trusted = TrustedHosts.all(this);
+        if (!trusted.isEmpty()) {
+            TextView tLbl = new TextView(this);
+            tLbl.setText("Разрешённые сертификаты: " + android.text.TextUtils.join(", ", trusted));
+            tLbl.setTextColor(0xFFB9C0CC);
+            tLbl.setTextSize(13);
+            LinearLayout.LayoutParams tlp = new LinearLayout.LayoutParams(-1, -2);
+            tlp.topMargin = Math.round(14 * d);
+            tLbl.setLayoutParams(tlp);
+            box.addView(tLbl);
+
+            Button forget = new Button(this);
+            forget.setText("Забыть сертификаты");
+            LinearLayout.LayoutParams flp = new LinearLayout.LayoutParams(-1, -2);
+            flp.topMargin = Math.round(10 * d);
+            forget.setLayoutParams(flp);
+            forget.setOnClickListener(v -> {
+                TrustedHosts.clear(this);
+                tLbl.setText("Разрешённые сертификаты: нет");
+                Toast.makeText(this, "Сертификаты забыты", Toast.LENGTH_SHORT).show();
+            });
+            box.addView(forget);
+        }
+
         // --- Startup & permissions -------------------------------------------
         TextView startTitle = new TextView(this);
         startTitle.setText("Запуск и разрешения");
