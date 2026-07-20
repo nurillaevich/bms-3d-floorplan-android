@@ -10,8 +10,8 @@ android {
         applicationId 'uz.bms.floorplan3d'
         minSdk 26
         targetSdk 34
-        versionCode 45
-        versionName '1.1.43'
+        versionCode 46
+        versionName '1.2.0'
     }
 
     // A FIXED signing key, so every CI build is signed with the SAME
@@ -45,6 +45,11 @@ android {
         }
     }
 
+    buildFeatures {
+        // RemoteHttpService reports the app version over /?cmd=getInfo.
+        buildConfig true
+    }
+
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
@@ -54,4 +59,6 @@ android {
 dependencies {
     // FileProvider (for the in-app "update" install intent).
     implementation 'androidx.core:core:1.12.0'
+    // Tiny embedded HTTP server for the remote-control endpoint.
+    implementation 'org.nanohttpd:nanohttpd:2.3.1'
 }

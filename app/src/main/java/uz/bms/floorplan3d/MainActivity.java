@@ -121,7 +121,38 @@ public class MainActivity extends Activity {
         super.onResume();
         immersive();
         enterKiosk();
+        // Remote control (HTTP) can reach the page only while it is on screen.
+        KioskBus.setHandler(remoteHandler);
+        RemoteHttpService.sync(this);
     }
+
+    @Override
+    protected void onPause() {
+        KioskBus.clearHandler(remoteHandler);
+        super.onPause();
+    }
+
+    /** Commands from RemoteHttpService, marshalled onto the UI thread. */
+    private final KioskBus.Handler remoteHandler = new KioskBus.Handler() {
+        @Override
+        public void onCommand(final KioskBus.Command cmd) {
+            runOnUiThread(new Runnable() {
+                @Override
+                public void run() {
+                    if (web == null) return;
+                    if ("reload".equals(cmd.name)) {
+                        web.reload();
+                    } else if ("loadUrl".equals(cmd.name) && cmd.url != null) {
+                        web.loadUrl(cmd.url);
+                    } else if ("loadStartUrl".equals(cmd.name)) {
+                        // Back to the bundled 3D page with the saved credentials.
+                        SharedPreferences p = getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+                        loadKiosk(p.getString(KEY_URL, ""), p.getString(KEY_TOKEN, ""));
+                    }
+                }
+            });
+        }
+    };
 
     /**
      * Kiosk lock (screen pinning / Lock Task Mode): blocks Home & Recents and
@@ -180,6 +211,7 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        KioskBus.clearHandler(remoteHandler);
         if (web != null) {
             web.destroy();
             web = null;

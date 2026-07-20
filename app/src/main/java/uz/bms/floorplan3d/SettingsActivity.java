@@ -155,6 +155,85 @@ public class SettingsActivity extends Activity {
         });
         box.addView(kiosk);
 
+        // --- Remote control (HTTP) -------------------------------------------
+        // Lets Home Assistant drive the panel over the LAN:
+        //   http://<tablet-ip>:<port>/?cmd=screenOn&password=<pass>
+        // Off by default: it opens a port on the local network, so it should be
+        // a deliberate choice rather than something a panel quietly ships with.
+        TextView rcTitle = new TextView(this);
+        rcTitle.setText("Удалённое управление (HTTP)");
+        rcTitle.setTextColor(0xFFFFFFFF);
+        rcTitle.setTextSize(16);
+        LinearLayout.LayoutParams rtp = new LinearLayout.LayoutParams(-1, -2);
+        rtp.topMargin = Math.round(22 * d);
+        rcTitle.setLayoutParams(rtp);
+        box.addView(rcTitle);
+
+        final TextView rcHint = new TextView(this);
+        rcHint.setTextColor(0xFFB9C0CC);
+        rcHint.setTextSize(13);
+        LinearLayout.LayoutParams rhp = new LinearLayout.LayoutParams(-1, -2);
+        rhp.topMargin = Math.round(6 * d);
+        rcHint.setLayoutParams(rhp);
+        box.addView(rcHint);
+
+        final EditText rcPort = field(
+                p.getString(RemoteHttpService.KEY_PORT, String.valueOf(RemoteHttpService.DEFAULT_PORT)),
+                "Порт (по умолчанию 2323)", InputType.TYPE_CLASS_NUMBER, d, box);
+        final EditText rcPass = field(
+                p.getString(RemoteHttpService.KEY_PASSWORD, RemoteHttpService.DEFAULT_PASSWORD),
+                "Пароль", InputType.TYPE_CLASS_TEXT, d, box);
+
+        final CheckBox rc = new CheckBox(this);
+        rc.setText("Включить удалённое управление");
+        rc.setTextColor(0xFFFFFFFF);
+        rc.setChecked(RemoteHttpService.isEnabled(this));
+        LinearLayout.LayoutParams rcp = new LinearLayout.LayoutParams(-1, -2);
+        rcp.topMargin = Math.round(12 * d);
+        rc.setLayoutParams(rcp);
+        box.addView(rc);
+
+        final Runnable refreshRcHint = () -> {
+            if (!RemoteHttpService.isEnabled(this)) {
+                rcHint.setText("Выключено. Включите, чтобы управлять панелью из Home Assistant.");
+                return;
+            }
+            String ip = RemoteHttpService.localIp(this);
+            rcHint.setText("http://" + (ip == null ? "<ip-планшета>" : ip) + ":"
+                    + RemoteHttpService.port(this) + "/?cmd=screenOn&password="
+                    + RemoteHttpService.password(this)
+                    + "
+
+Команды: screenOn, screenOff, reload, loadStartUrl,
+"
+                    + "loadUrl&url=..., getInfo");
+        };
+        refreshRcHint.run();
+
+        // Port/password are read live by the server, so save on edit and restart
+        // it — otherwise a changed port keeps serving on the old one.
+        final Runnable saveRc = () -> {
+            p.edit()
+                    .putString(RemoteHttpService.KEY_PORT, rcPort.getText().toString().trim())
+                    .putString(RemoteHttpService.KEY_PASSWORD, rcPass.getText().toString().trim())
+                    .apply();
+            if (RemoteHttpService.isEnabled(this)) {
+                stopService(new Intent(this, RemoteHttpService.class));
+            }
+            RemoteHttpService.sync(this);
+            refreshRcHint.run();
+        };
+        rcPort.setOnFocusChangeListener((v, has) -> { if (!has) saveRc.run(); });
+        rcPass.setOnFocusChangeListener((v, has) -> { if (!has) saveRc.run(); });
+
+        rc.setOnCheckedChangeListener((b, checked) -> {
+            p.edit().putBoolean(RemoteHttpService.KEY_ENABLED, checked).apply();
+            saveRc.run();
+            Toast.makeText(this,
+                    checked ? "Удалённое управление включено" : "Удалённое управление выключено",
+                    Toast.LENGTH_SHORT).show();
+        });
+
         // Open the Android "home app" picker (the «Рабочий стол» list) so the user
         // can set this app as the default desktop — then Home returns to the kiosk.
         Button home = new Button(this);

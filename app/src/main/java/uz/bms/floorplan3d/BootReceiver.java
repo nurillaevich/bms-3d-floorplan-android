@@ -17,6 +17,12 @@ public class BootReceiver extends BroadcastReceiver {
             Intent i = new Intent(ctx, MainActivity.class);
             i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
             ctx.startActivity(i);
+            // Bring the remote-control endpoint back up too, so Home Assistant can
+            // reach the panel after a power cycle without someone touching it.
+            try {
+                RemoteHttpService.sync(ctx);
+            } catch (Exception ignored) {
+            }
         }
     }
 }
