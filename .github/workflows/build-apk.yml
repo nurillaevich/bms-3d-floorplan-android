@@ -96,17 +96,14 @@ jobs:
         env:
           SIGNING_PASSWORD: ${{ secrets.SIGNING_PASSWORD }}
         run: |
-          # Tee the build so a failure can be read from the run summary. Raw job
-          # logs need an authenticated API call; the step summary is public, and
-          # without it a compile error here is invisible from outside.
+          # Emit failures as ::error:: annotations. Raw job logs need an
+          # authenticated API call and the step summary isn't exposed either, so
+          # without this a compile error is invisible from outside the repo.
           set -o pipefail
           if ! gradle assembleDebug --no-daemon --stacktrace 2>&1 | tee /tmp/build.log; then
-            {
-              echo '### Build failed'
-              echo '```'
-              grep -E "error:|FAILURE:|Execution failed|Caused by:|Could not (find|resolve)|\.java:[0-9]+" /tmp/build.log                 | head -40
-              echo '```'
-            } >> "$GITHUB_STEP_SUMMARY"
+            grep -E "error:|Execution failed|Caused by:|Could not (find|resolve)" /tmp/build.log               | head -25 | while IFS= read -r line; do
+                  echo "::error::${line}"
+                done
             exit 1
           fi
 
