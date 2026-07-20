@@ -1,5 +1,6 @@
 package uz.bms.floorplan3d;
 
+import android.Manifest;
 import android.app.Activity;
 import android.app.ActivityManager;
 import android.app.AlertDialog;
@@ -8,6 +9,7 @@ import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.content.pm.PackageManager;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
@@ -16,6 +18,8 @@ import android.view.Gravity;
 import android.view.View;
 import android.view.WindowManager;
 import android.net.http.SslError;
+import android.webkit.GeolocationPermissions;
+import android.webkit.PermissionRequest;
 import android.webkit.SslErrorHandler;
 import android.webkit.WebChromeClient;
 import android.webkit.WebSettings;
@@ -75,7 +79,42 @@ public class MainActivity extends Activity {
         // The kiosk page runs from file:// and opens a WebSocket to HA — allow it.
         s.setAllowFileAccessFromFileURLs(true);
         s.setAllowUniversalAccessFromFileURLs(true);
-        web.setWebChromeClient(new WebChromeClient());
+        // The default WebChromeClient DENIES every permission the page asks for,
+        // which is why an intercom's camera feed stayed blank here while it played
+        // fine in a desktop browser. Grant what the page requests, but only for
+        // resources Android has already granted this app.
+        web.setWebChromeClient(new WebChromeClient() {
+            @Override
+            public void onPermissionRequest(final PermissionRequest request) {
+                runOnUiThread(() -> {
+                    java.util.List<String> ok = new java.util.ArrayList<>();
+                    for (String r : request.getResources()) {
+                        if (PermissionRequest.RESOURCE_VIDEO_CAPTURE.equals(r)) {
+                            if (hasPermission(Manifest.permission.CAMERA)) ok.add(r);
+                        } else if (PermissionRequest.RESOURCE_AUDIO_CAPTURE.equals(r)) {
+                            if (hasPermission(Manifest.permission.RECORD_AUDIO)) ok.add(r);
+                        } else {
+                            // Protected media ids etc. — nothing extra to check.
+                            ok.add(r);
+                        }
+                    }
+                    if (ok.isEmpty()) {
+                        request.deny();
+                    } else {
+                        request.grant(ok.toArray(new String[0]));
+                    }
+                });
+            }
+
+            @Override
+            public void onGeolocationPermissionsShowPrompt(String origin,
+                                                           GeolocationPermissions.Callback cb) {
+                cb.invoke(origin,
+                        hasPermission(Manifest.permission.ACCESS_FINE_LOCATION)
+                                || hasPermission(Manifest.permission.ACCESS_COARSE_LOCATION),
+                        false);
+            }
+        });
         web.setWebViewClient(new WebViewClient() {
             @Override
             public void onReceivedSslError(WebView view, final SslErrorHandler handler,
@@ -180,6 +219,7 @@ public class MainActivity extends Activity {
         super.onResume();
         immersive();
         enterKiosk();
+        requestMediaPermissions();
         // Remote control (HTTP) can reach the page only while it is on screen.
         KioskBus.setHandler(remoteHandler);
         RemoteHttpService.sync(this);
@@ -191,6 +231,34 @@ public class MainActivity extends Activity {
         KioskBus.clearHandler(remoteHandler);
         stopAutoReload(); // don't reload a page nobody is looking at
         super.onPause();
+    }
+
+    private boolean hasPermission(String permission) {
+        return checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED;
+    }
+
+    /** Ask for camera/mic once, so a video intercom embedded in the panel can
+     *  actually open a stream. Without the runtime grant the page's request is
+     *  refused above and the feed just stays black, with nothing to explain it. */
+    private void requestMediaPermissions() {
+        java.util.List<String> need = new java.util.ArrayList<>();
+        if (!hasPermission(Manifest.permission.CAMERA)) need.add(Manifest.permission.CAMERA);
+        if (!hasPermission(Manifest.permission.RECORD_AUDIO)) {
+            need.add(Manifest.permission.RECORD_AUDIO);
+        }
+        if (need.isEmpty()) return;
+        try {
+            requestPermissions(need.toArray(new String[0]), 42);
+        } catch (Exception ignored) {
+            // Some kiosk ROMs block the dialog; the panel itself still works.
+        }
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int code, String[] perms, int[] results) {
+        super.onRequestPermissionsResult(code, perms, results);
+        // Re-run the page so a stream that was refused before can start now.
+        if (code == 42 && web != null) web.reload();
     }
 
     /** Optional periodic reload (settings → "Автообновление страницы"). Off at 0,
