@@ -233,6 +233,53 @@ public class SettingsActivity extends Activity {
                     Toast.LENGTH_SHORT).show();
         });
 
+        // --- Which page to show -----------------------------------------------
+        TextView pgTitle = new TextView(this);
+        pgTitle.setText("Страница панели");
+        pgTitle.setTextColor(0xFFF3A83C);
+        pgTitle.setTextSize(15);
+        LinearLayout.LayoutParams ptp = new LinearLayout.LayoutParams(-1, -2);
+        ptp.topMargin = Math.round(24 * d);
+        pgTitle.setLayoutParams(ptp);
+        box.addView(pgTitle);
+
+        TextView pgHint = new TextView(this);
+        pgHint.setText("Пусто — встроенный 3D-план (работает без сети).\n"
+                + "Адрес страницы Home Assistant — откроется сам HA: домофон с камерой\n"
+                + "и всё остальное, как на компьютере.");
+        pgHint.setTextColor(0xFFB9C0CC);
+        pgHint.setTextSize(13);
+        LinearLayout.LayoutParams php = new LinearLayout.LayoutParams(-1, -2);
+        php.topMargin = Math.round(6 * d);
+        pgHint.setLayoutParams(php);
+        box.addView(pgHint);
+
+        final EditText startUrl = field(p.getString(MainActivity.KEY_START_URL, ""),
+                "http://homeassistant.local:8123/3d-floorplan",
+                InputType.TYPE_TEXT_VARIATION_URI, d, box);
+        startUrl.setOnFocusChangeListener((v, has) -> {
+            if (has) return;
+            String u = startUrl.getText().toString().trim();
+            if (!u.isEmpty() && !u.matches("(?i)^https?://.*")) u = "http://" + u;
+            p.edit().putString(MainActivity.KEY_START_URL, u).apply();
+            startUrl.setText(u);
+        });
+
+        Button applyPage = new Button(this);
+        applyPage.setText("Применить и открыть");
+        LinearLayout.LayoutParams app = new LinearLayout.LayoutParams(-1, -2);
+        app.topMargin = Math.round(12 * d);
+        applyPage.setLayoutParams(app);
+        applyPage.setOnClickListener(v -> {
+            String u = startUrl.getText().toString().trim();
+            if (!u.isEmpty() && !u.matches("(?i)^https?://.*")) u = "http://" + u;
+            p.edit().putString(MainActivity.KEY_START_URL, u).apply();
+            startActivity(new Intent(this, MainActivity.class)
+                    .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_NEW_TASK));
+            finish();
+        });
+        box.addView(applyPage);
+
         // --- Page behaviour ---------------------------------------------------
         TextView behTitle = new TextView(this);
         behTitle.setText("Страница");

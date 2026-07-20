@@ -47,6 +47,8 @@ public class MainActivity extends Activity {
     public static final String KEY_JS = "javascript_enabled";
     /** Seconds between automatic page reloads. 0 = off. */
     public static final String KEY_AUTO_RELOAD = "auto_reload_seconds";
+    /** Load this page instead of the bundled 3D one. Empty = bundled. */
+    public static final String KEY_START_URL = "start_url";
 
     private WebView web;
     private final Handler reloadHandler = new Handler(Looper.getMainLooper());
@@ -181,6 +183,18 @@ public class MainActivity extends Activity {
     }
 
     private void loadKiosk(String url, String token) {
+        // A start page pointed at Home Assistant itself loads the real frontend,
+        // so anything an integration adds there — the intercom pop-up with its
+        // camera, most of all — works exactly as it does on a desktop. The
+        // bundled page can't do that: it hosts only the 3D card, not HA, so a
+        // pop-up HA injects into a dashboard simply doesn't exist in it.
+        // Empty (the default) keeps the bundled page, which still opens offline.
+        String start = getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .getString(KEY_START_URL, "").trim();
+        if (!start.isEmpty()) {
+            web.loadUrl(start);
+            return;
+        }
         String html = readAsset("kiosk/index.html");
         String cfg = "<script>window.__HA3D__={haUrl:" + jsStr(url)
                 + ",token:" + jsStr(token) + ",useSession:false,app:true};</script>";
