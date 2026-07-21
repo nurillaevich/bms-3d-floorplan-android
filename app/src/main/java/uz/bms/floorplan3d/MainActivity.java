@@ -17,11 +17,14 @@ import android.os.Looper;
 import android.view.Gravity;
 import android.view.View;
 import android.view.WindowManager;
+import android.net.Uri;
 import android.net.http.SslError;
 import android.webkit.GeolocationPermissions;
 import android.webkit.PermissionRequest;
 import android.webkit.SslErrorHandler;
 import android.webkit.WebChromeClient;
+import android.webkit.WebResourceRequest;
+import android.webkit.WebResourceResponse;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
@@ -30,7 +33,18 @@ import android.widget.FrameLayout;
 import java.io.BufferedReader;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.net.HttpURLConnection;
+import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.security.SecureRandom;
+import java.security.cert.X509Certificate;
+import java.util.HashMap;
+import java.util.Map;
+
+import javax.net.ssl.HttpsURLConnection;
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.TrustManager;
+import javax.net.ssl.X509TrustManager;
 
 /**
  * Fullscreen kiosk. Loads the bundled 3D floor-plan kiosk page and hands it the
@@ -53,6 +67,8 @@ public class MainActivity extends Activity {
     private WebView web;
     private final Handler reloadHandler = new Handler(Looper.getMainLooper());
     private Runnable autoReload;
+    /** Home Assistant base URL, used to proxy the intercom's ringtone/snapshot. */
+    private String haBase = "";
 
     @Override
     protected void onCreate(Bundle state) {
@@ -67,6 +83,7 @@ public class MainActivity extends Activity {
             finish();
             return;
         }
+        haBase = normalizeBase(url);
 
         web = new WebView(this);
         WebSettings s = web.getSettings();
@@ -118,6 +135,35 @@ public class MainActivity extends Activity {
             }
         });
         web.setWebViewClient(new WebViewClient() {
+            @Override
+            public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
+                // The BMS Intercom pop-up (served by Home Assistant) points its
+                // ringtone and camera snapshot at HA-root paths like
+                // /bms_intercom_static/ring1.mp3. The kiosk page is bundled and
+                // runs from file://, so those resolve to file:///… and fail — which
+                // is why the doorbell ring stayed silent here while the video (over
+                // WebRTC/WebSocket) played fine. Fetch just those assets from the
+                // configured Home Assistant instead, so the ring is heard.
+                try {
+                    String method = request.getMethod();
+                    if (method != null && !"GET".equalsIgnoreCase(method)) return null;
+                    Uri u = request.getUrl();
+                    String path = (u != null) ? u.getPath() : null;
+                    if (path == null) return null;
+                    if (!path.startsWith("/bms_intercom_static/")
+                            && !path.startsWith("/api/camera_proxy")) {
+                        return null; // not an intercom asset — leave it alone
+                    }
+                    if (haBase.isEmpty()) return null;
+                    String target = haBase + path;
+                    String q = u.getQuery();
+                    if (q != null && !q.isEmpty()) target += "?" + q;
+                    return proxyFromHa(target);
+                } catch (Exception e) {
+                    return null; // fall back to the default load
+                }
+            }
+
             @Override
             public void onReceivedSslError(WebView view, final SslErrorHandler handler,
                                            SslError error) {
@@ -226,6 +272,69 @@ public class MainActivity extends Activity {
 
     private int dp(int v) {
         return Math.round(v * getResources().getDisplayMetrics().density);
+    }
+
+    // --- Intercom asset proxy (ringtone / camera snapshot) ------------------
+
+    /** Normalize a HA base URL: add a scheme if missing, drop trailing slashes. */
+    private static String normalizeBase(String u) {
+        if (u == null) return "";
+        u = u.trim();
+        if (u.isEmpty()) return "";
+        if (!u.startsWith("http://") && !u.startsWith("https://")) u = "https://" + u;
+        while (u.endsWith("/")) u = u.substring(0, u.length() - 1);
+        return u;
+    }
+
+    /** Fetch a Home Assistant asset and hand it to the WebView. Tolerates the
+     *  self-signed LAN certificate, matching the app's per-host SSL trust. Runs on
+     *  the WebView's background thread (shouldInterceptRequest), so blocking IO is
+     *  fine here. */
+    private WebResourceResponse proxyFromHa(String target) throws Exception {
+        HttpURLConnection c = openTrusting(new URL(target));
+        c.setRequestMethod("GET");
+        c.setInstanceFollowRedirects(true);
+        c.setConnectTimeout(8000);
+        c.setReadTimeout(0); // 0 = no read timeout, so a live MJPEG stream isn't cut
+        int code = c.getResponseCode();
+        if (code < 200 || code >= 400) {
+            c.disconnect();
+            return null;
+        }
+        String ct = c.getContentType();
+        String mime = "application/octet-stream";
+        String enc = null;
+        if (ct != null) {
+            String[] parts = ct.split(";");
+            mime = parts[0].trim();
+            for (int i = 1; i < parts.length; i++) {
+                String pt = parts[i].trim();
+                if (pt.toLowerCase().startsWith("charset=")) {
+                    enc = pt.substring("charset=".length()).trim();
+                }
+            }
+        }
+        Map<String, String> headers = new HashMap<>();
+        headers.put("Access-Control-Allow-Origin", "*");
+        headers.put("Cache-Control", "no-cache");
+        return new WebResourceResponse(mime, enc, 200, "OK", headers, c.getInputStream());
+    }
+
+    /** An HttpURLConnection that accepts the configured HA's self-signed cert. */
+    private HttpURLConnection openTrusting(URL url) throws Exception {
+        HttpURLConnection c = (HttpURLConnection) url.openConnection();
+        if (c instanceof HttpsURLConnection) {
+            SSLContext ctx = SSLContext.getInstance("TLS");
+            ctx.init(null, new TrustManager[]{ new X509TrustManager() {
+                @Override public void checkClientTrusted(X509Certificate[] chain, String authType) {}
+                @Override public void checkServerTrusted(X509Certificate[] chain, String authType) {}
+                @Override public X509Certificate[] getAcceptedIssuers() { return new X509Certificate[0]; }
+            }}, new SecureRandom());
+            HttpsURLConnection hc = (HttpsURLConnection) c;
+            hc.setSSLSocketFactory(ctx.getSocketFactory());
+            hc.setHostnameVerifier((h, sess) -> true);
+        }
+        return c;
     }
 
     @Override
