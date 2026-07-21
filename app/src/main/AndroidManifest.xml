@@ -12,6 +12,9 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <!-- An incoming intercom call has to take the screen even when the panel is
+         asleep and the app is in the background. -->
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
     <!-- A video intercom embedded in the panel opens a camera/mic stream; the
          WebView refuses the page's request unless the app itself holds these. -->
     <uses-permission android:name="android.permission.CAMERA" />
@@ -54,6 +57,23 @@
             android:name=".SettingsActivity"
             android:exported="false"
             android:screenOrientation="sensorLandscape" />
+
+        <!-- Who to call. Same task as the kiosk, so screen pinning still holds. -->
+        <activity
+            android:name=".PeersActivity"
+            android:exported="false"
+            android:screenOrientation="sensorLandscape" />
+
+        <!-- The call itself: must appear over a locked, sleeping panel, and must
+             not linger in Recents once the call is over. -->
+        <activity
+            android:name=".CallActivity"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:launchMode="singleTop"
+            android:screenOrientation="sensorLandscape"
+            android:showWhenLocked="true"
+            android:turnScreenOn="true" />
 
         <provider
             android:name="androidx.core.content.FileProvider"

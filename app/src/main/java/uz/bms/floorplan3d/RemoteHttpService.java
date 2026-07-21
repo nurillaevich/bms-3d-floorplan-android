@@ -47,9 +47,14 @@ public class RemoteHttpService extends Service {
 
     private static final int NOTIF_ID = 7321;
     private static final String CHANNEL_ID = "kiosk_remote";
+    /** How often this tablet re-announces itself in the intercom directory. */
+    private static final long HEARTBEAT_MS = 60_000L;
 
     private SharedPreferences prefs;
     private ControlServer server;
+    private final android.os.Handler clock =
+            new android.os.Handler(android.os.Looper.getMainLooper());
+    private Runnable heartbeat;
 
     private static SharedPreferences sp(Context c) {
         return c.getApplicationContext()
@@ -76,10 +81,19 @@ public class RemoteHttpService extends Service {
         return (v == null || v.isEmpty()) ? DEFAULT_PASSWORD : v;
     }
 
+    /**
+     * The endpoint also carries intercom signalling, so it must run whenever
+     * EITHER feature is on — a tablet with remote control switched off still has
+     * to be reachable when another panel rings it.
+     */
+    public static boolean isNeeded(Context c) {
+        return isEnabled(c) || Intercom.isEnabled(c);
+    }
+
     /** Start (or stop) the endpoint to match the current setting. */
     public static void sync(Context c) {
         Intent i = new Intent(c, RemoteHttpService.class);
-        if (isEnabled(c)) {
+        if (isNeeded(c)) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) c.startForegroundService(i);
             else c.startService(i);
         } else {
@@ -124,7 +138,7 @@ public class RemoteHttpService extends Service {
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
-        if (!isEnabled(this)) {
+        if (!isNeeded(this)) {
             stopSelf();
             return START_NOT_STICKY;
         }
@@ -138,16 +152,58 @@ public class RemoteHttpService extends Service {
                 server = null;
             }
         }
+        startHeartbeat();
         return START_STICKY;
     }
 
     @Override
     public void onDestroy() {
+        stopHeartbeat();
         if (server != null) {
             server.stop();
             server = null;
         }
         super.onDestroy();
+    }
+
+    // --- intercom directory heartbeat ---------------------------------------
+
+    /**
+     * Re-publish this tablet in the Home Assistant directory every minute.
+     *
+     * It repeats rather than registering once because states pushed over HA's
+     * REST API do not survive a Home Assistant restart, and because a tablet's
+     * address can move with its DHCP lease. Repeating turns both into a problem
+     * that fixes itself within a minute instead of one that needs a ladder.
+     */
+    private void startHeartbeat() {
+        stopHeartbeat();
+        if (!Intercom.isEnabled(this)) return;
+        heartbeat = new Runnable() {
+            @Override
+            public void run() {
+                if (Intercom.isEnabled(RemoteHttpService.this)) {
+                    new Thread(() -> {
+                        try {
+                            IntercomRegistry.publish(RemoteHttpService.this);
+                        } catch (Exception ignored) {
+                            // HA unreachable right now — the next beat retries.
+                            // The intercom is still answerable meanwhile: only
+                            // the directory listing goes stale, not the phone.
+                        }
+                    }, "intercom-register").start();
+                }
+                clock.postDelayed(this, HEARTBEAT_MS);
+            }
+        };
+        clock.post(heartbeat);
+    }
+
+    private void stopHeartbeat() {
+        if (heartbeat != null) {
+            clock.removeCallbacks(heartbeat);
+            heartbeat = null;
+        }
     }
 
     @Override
@@ -166,9 +222,12 @@ public class RemoteHttpService extends Service {
         Notification.Builder b = (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
                 ? new Notification.Builder(this, CHANNEL_ID)
                 : new Notification.Builder(this);
+        String what = Intercom.isEnabled(this)
+                ? (isEnabled(this) ? "Интерком и удалённое управление" : "Интерком")
+                : "Удалённое управление";
         Notification n = b
                 .setContentTitle("BMS 3D Floor Plan")
-                .setContentText("Удалённое управление: порт " + port(this))
+                .setContentText(what + ": порт " + port(this))
                 .setSmallIcon(android.R.drawable.ic_menu_manage)
                 .setOngoing(true)
                 .build();
@@ -229,8 +288,21 @@ public class RemoteHttpService extends Service {
             String url = first(session, "url");
             boolean json = "json".equals(first(session, "type"));
 
+            // Intercom signalling comes from another tablet, not from Home
+            // Assistant, and is authenticated with the intercom key instead of
+            // the remote-control password — so ringing a panel never implies the
+            // right to drive its screen, and vice versa.
+            if (cmd != null && cmd.startsWith("intercom")) {
+                return intercom(session, cmd, json);
+            }
+
             if (!password(RemoteHttpService.this).equals(pass)) {
                 return reply(json, Response.Status.FORBIDDEN, "error", "wrong password", cmd);
+            }
+            if (!isEnabled(RemoteHttpService.this)) {
+                // The endpoint is only up for the intercom's sake.
+                return reply(json, Response.Status.FORBIDDEN, "error",
+                        "remote control is switched off", cmd);
             }
 
             if ("getInfo".equals(cmd) || "deviceInfo".equals(cmd)) return deviceInfo();
@@ -263,6 +335,81 @@ public class RemoteHttpService extends Service {
                     ok ? "OK" : "error",
                     ok ? "command executed" : "unknown command, or the kiosk screen isn't open",
                     cmd);
+        }
+
+        /**
+         * Ring / answer / hang up, from another tablet on the LAN.
+         *
+         * Kept on the same port as the rest of the endpoint so a house needs one
+         * firewall rule and one open port, not two.
+         */
+        private Response intercom(IHTTPSession session, String cmd, boolean json) {
+            Intercom in = Intercom.get(RemoteHttpService.this);
+            if (!Intercom.isEnabled(RemoteHttpService.this)) {
+                return intercomReply(json, Response.Status.FORBIDDEN, "error",
+                        "intercom is switched off");
+            }
+            int callId = num(first(session, "callId"), 0);
+            if (!in.authorized(first(session, "key"), callId)) {
+                return intercomReply(json, Response.Status.FORBIDDEN, "error", "denied");
+            }
+
+            String result;
+            switch (cmd) {
+                case "intercomInvite":
+                    // The caller's address comes from the connection, not from a
+                    // parameter: it is the one thing in the invite that cannot be
+                    // spoofed into pointing the voice stream somewhere else.
+                    result = in.onInvite(
+                            session.getRemoteIpAddress(),
+                            first(session, "from"),
+                            first(session, "name"),
+                            num(first(session, "httpPort"), DEFAULT_PORT),
+                            num(first(session, "audioPort"), 0),
+                            first(session, "replyKey"),
+                            callId);
+                    if ("ringing".equals(result)) wakeScreen();
+                    break;
+                case "intercomAccept":
+                    result = in.onAccepted(callId, num(first(session, "audioPort"), 0));
+                    break;
+                case "intercomReject":
+                    result = in.onRejected(callId);
+                    break;
+                case "intercomBye":
+                    result = in.onBye(callId);
+                    break;
+                default:
+                    return intercomReply(json, Response.Status.BAD_REQUEST, "error",
+                            "unknown intercom command");
+            }
+            return intercomReply(json, Response.Status.OK, "OK", result);
+        }
+
+        private Response intercomReply(boolean json, Response.Status http,
+                                       String status, String result) {
+            if (json) {
+                String body;
+                try {
+                    body = new JSONObject()
+                            .put("status", status)
+                            .put("result", result)
+                            .toString();
+                } catch (Exception e) {
+                    body = "{\"status\":\"error\"}";
+                }
+                return newFixedLengthResponse(http, "application/json", body);
+            }
+            return newFixedLengthResponse(http, "text/plain", status + ": " + result);
+        }
+
+        private int num(String v, int fallback) {
+            if (v == null || v.trim().isEmpty()) return fallback;
+            try {
+                return Integer.parseInt(v.trim());
+            } catch (NumberFormatException e) {
+                return fallback;
+            }
         }
 
         private String first(IHTTPSession s, String key) {

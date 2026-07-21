@@ -36,15 +36,8 @@ import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
-import java.security.SecureRandom;
-import java.security.cert.X509Certificate;
 import java.util.HashMap;
 import java.util.Map;
-
-import javax.net.ssl.HttpsURLConnection;
-import javax.net.ssl.SSLContext;
-import javax.net.ssl.TrustManager;
-import javax.net.ssl.X509TrustManager;
 
 /**
  * Fullscreen kiosk. Loads the bundled 3D floor-plan kiosk page and hands it the
@@ -82,6 +75,7 @@ public class MainActivity extends Activity {
             + "}catch(e){}})();</script>";
 
     private WebView web;
+    private android.widget.Button intercomBtn;
     private final Handler reloadHandler = new Handler(Looper.getMainLooper());
     private Runnable autoReload;
     /** Home Assistant base URL, used to proxy the intercom's ringtone/snapshot. */
@@ -100,7 +94,7 @@ public class MainActivity extends Activity {
             finish();
             return;
         }
-        haBase = normalizeBase(url);
+        haBase = Http.normalizeBase(url);
 
         web = new WebView(this);
         WebSettings s = web.getSettings();
@@ -241,6 +235,29 @@ public class MainActivity extends Activity {
         });
         root.addView(hot);
 
+        // Calling another room has to be reachable from the panel itself, not
+        // only from a settings screen behind a long-press — so a plain native
+        // button sits over the plan whenever the intercom is switched on.
+        intercomBtn = new android.widget.Button(this);
+        intercomBtn.setText("Интерком");
+        intercomBtn.setAllCaps(false);
+        intercomBtn.setTextColor(0xFFFFFFFF);
+        intercomBtn.setTextSize(15);
+        android.graphics.drawable.GradientDrawable ibg =
+                new android.graphics.drawable.GradientDrawable();
+        ibg.setColor(0xCC1F2530);
+        ibg.setCornerRadius(dp(22));
+        ibg.setStroke(Math.max(1, dp(1)), 0x66F3A83C);
+        intercomBtn.setBackground(ibg);
+        FrameLayout.LayoutParams ilp = new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.WRAP_CONTENT, dp(44), Gravity.BOTTOM | Gravity.END);
+        ilp.rightMargin = dp(16);
+        ilp.bottomMargin = dp(16);
+        intercomBtn.setLayoutParams(ilp);
+        intercomBtn.setOnClickListener(v ->
+                startActivity(new Intent(this, PeersActivity.class)));
+        root.addView(intercomBtn);
+
         setContentView(root);
         loadKiosk(url, token);
     }
@@ -294,22 +311,12 @@ public class MainActivity extends Activity {
 
     // --- Intercom asset proxy (ringtone / camera snapshot) ------------------
 
-    /** Normalize a HA base URL: add a scheme if missing, drop trailing slashes. */
-    private static String normalizeBase(String u) {
-        if (u == null) return "";
-        u = u.trim();
-        if (u.isEmpty()) return "";
-        if (!u.startsWith("http://") && !u.startsWith("https://")) u = "https://" + u;
-        while (u.endsWith("/")) u = u.substring(0, u.length() - 1);
-        return u;
-    }
-
     /** Fetch a Home Assistant asset and hand it to the WebView. Tolerates the
      *  self-signed LAN certificate, matching the app's per-host SSL trust. Runs on
      *  the WebView's background thread (shouldInterceptRequest), so blocking IO is
      *  fine here. */
     private WebResourceResponse proxyFromHa(String target) throws Exception {
-        HttpURLConnection c = openTrusting(new URL(target));
+        HttpURLConnection c = Http.openTrusting(new URL(target));
         c.setRequestMethod("GET");
         c.setInstanceFollowRedirects(true);
         c.setConnectTimeout(8000);
@@ -338,23 +345,6 @@ public class MainActivity extends Activity {
         return new WebResourceResponse(mime, enc, 200, "OK", headers, c.getInputStream());
     }
 
-    /** An HttpURLConnection that accepts the configured HA's self-signed cert. */
-    private HttpURLConnection openTrusting(URL url) throws Exception {
-        HttpURLConnection c = (HttpURLConnection) url.openConnection();
-        if (c instanceof HttpsURLConnection) {
-            SSLContext ctx = SSLContext.getInstance("TLS");
-            ctx.init(null, new TrustManager[]{ new X509TrustManager() {
-                @Override public void checkClientTrusted(X509Certificate[] chain, String authType) {}
-                @Override public void checkServerTrusted(X509Certificate[] chain, String authType) {}
-                @Override public X509Certificate[] getAcceptedIssuers() { return new X509Certificate[0]; }
-            }}, new SecureRandom());
-            HttpsURLConnection hc = (HttpsURLConnection) c;
-            hc.setSSLSocketFactory(ctx.getSocketFactory());
-            hc.setHostnameVerifier((h, sess) -> true);
-        }
-        return c;
-    }
-
     @Override
     protected void onResume() {
         super.onResume();
@@ -365,6 +355,17 @@ public class MainActivity extends Activity {
         KioskBus.setHandler(remoteHandler);
         RemoteHttpService.sync(this);
         startAutoReload();
+
+        if (intercomBtn != null) {
+            intercomBtn.setVisibility(Intercom.isEnabled(this) ? View.VISIBLE : View.GONE);
+        }
+        // A call that arrived while the screen was off gets here: the service
+        // wakes the tablet by bringing this activity forward, and the ringing
+        // call is what should actually be on screen.
+        if (Intercom.get(this).busy()) {
+            startActivity(new Intent(this, CallActivity.class)
+                    .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP));
+        }
     }
 
     @Override

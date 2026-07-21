@@ -233,6 +233,113 @@ public class SettingsActivity extends Activity {
                     Toast.LENGTH_SHORT).show();
         });
 
+        // --- Intercom ---------------------------------------------------------
+        // Deliberately just a name: the tablet publishes itself (name + address)
+        // into Home Assistant and reads the other panels back from there, so a
+        // new tablet needs nothing entered anywhere else, and no panel has to be
+        // revisited when one is added.
+        TextView icTitle = new TextView(this);
+        icTitle.setText("Интерком (связь между планшетами)");
+        icTitle.setTextColor(0xFFF3A83C);
+        icTitle.setTextSize(15);
+        LinearLayout.LayoutParams itp = new LinearLayout.LayoutParams(-1, -2);
+        itp.topMargin = Math.round(24 * d);
+        icTitle.setLayoutParams(itp);
+        box.addView(icTitle);
+
+        final TextView icHint = new TextView(this);
+        icHint.setTextColor(0xFFB9C0CC);
+        icHint.setTextSize(13);
+        LinearLayout.LayoutParams ihp = new LinearLayout.LayoutParams(-1, -2);
+        ihp.topMargin = Math.round(6 * d);
+        icHint.setLayoutParams(ihp);
+        box.addView(icHint);
+
+        final EditText icName = field(Intercom.deviceName(this),
+                "Имя планшета: «1-этаж», «Кухня»…",
+                InputType.TYPE_CLASS_TEXT, d, box);
+
+        final CheckBox icOn = new CheckBox(this);
+        icOn.setText("Включить интерком");
+        icOn.setTextColor(0xFFFFFFFF);
+        icOn.setChecked(p.getBoolean(Intercom.KEY_ENABLED, false));
+        LinearLayout.LayoutParams iop = new LinearLayout.LayoutParams(-1, -2);
+        iop.topMargin = Math.round(12 * d);
+        icOn.setLayoutParams(iop);
+        box.addView(icOn);
+
+        final CheckBox icMedia = new CheckBox(this);
+        icMedia.setText("Звук через медиа-канал (если собеседника не слышно)");
+        icMedia.setTextColor(0xFFB9C0CC);
+        icMedia.setChecked(p.getBoolean(Intercom.KEY_MEDIA_STREAM, false));
+        LinearLayout.LayoutParams imp = new LinearLayout.LayoutParams(-1, -2);
+        imp.topMargin = Math.round(6 * d);
+        icMedia.setLayoutParams(imp);
+        icMedia.setOnCheckedChangeListener((b, checked) ->
+                p.edit().putBoolean(Intercom.KEY_MEDIA_STREAM, checked).apply());
+        box.addView(icMedia);
+
+        final Runnable refreshIcHint = () -> {
+            if (!p.getBoolean(Intercom.KEY_ENABLED, false)) {
+                icHint.setText("Выключено. Задайте имя и включите — планшет сам появится "
+                        + "в списке на остальных планшетах.");
+                return;
+            }
+            String nm = Intercom.deviceName(this);
+            String ip = RemoteHttpService.localIp(this);
+            String nl = System.getProperty("line.separator", "\n");
+            icHint.setText((nm.isEmpty() ? "Задайте имя планшета." : ("Этот планшет: " + nm))
+                    + nl + "Адрес: " + (ip == null ? "нет сети" : ip)
+                    + ":" + RemoteHttpService.port(this)
+                    + nl + "В Home Assistant: " + IntercomRegistry.entityId(Intercom.deviceId(this)));
+        };
+        refreshIcHint.run();
+
+        // Announce right away rather than at the next heartbeat: the operator is
+        // standing at the second tablet expecting the first one to show up.
+        final Runnable saveIntercom = () -> {
+            p.edit()
+                    .putString(Intercom.KEY_NAME, icName.getText().toString().trim())
+                    .putBoolean(Intercom.KEY_ENABLED, icOn.isChecked())
+                    .apply();
+            RemoteHttpService.sync(this);
+            refreshIcHint.run();
+            final boolean on = icOn.isChecked() && !Intercom.deviceName(this).isEmpty();
+            new Thread(() -> {
+                try {
+                    if (on) IntercomRegistry.publish(this);
+                    else IntercomRegistry.unpublish(this);
+                } catch (Exception e) {
+                    ui.post(() -> Toast.makeText(this,
+                            "Интерком: " + e.getMessage(), Toast.LENGTH_LONG).show());
+                }
+            }, "intercom-register").start();
+        };
+        icName.setOnFocusChangeListener((v, has) -> { if (!has) saveIntercom.run(); });
+        icOn.setOnCheckedChangeListener((b, checked) -> {
+            if (checked && icName.getText().toString().trim().isEmpty()) {
+                Toast.makeText(this, "Сначала задайте имя планшета", Toast.LENGTH_LONG).show();
+                b.setChecked(false);
+                return;
+            }
+            saveIntercom.run();
+        });
+
+        Button icOpen = new Button(this);
+        icOpen.setText("Открыть интерком");
+        LinearLayout.LayoutParams iop2 = new LinearLayout.LayoutParams(-1, -2);
+        iop2.topMargin = Math.round(12 * d);
+        icOpen.setLayoutParams(iop2);
+        icOpen.setOnClickListener(v -> {
+            saveIntercom.run();
+            if (!Intercom.isEnabled(this)) {
+                Toast.makeText(this, "Включите интерком и задайте имя", Toast.LENGTH_LONG).show();
+                return;
+            }
+            startActivity(new Intent(this, PeersActivity.class));
+        });
+        box.addView(icOpen);
+
         // --- Which page to show -----------------------------------------------
         TextView pgTitle = new TextView(this);
         pgTitle.setText("Страница панели");

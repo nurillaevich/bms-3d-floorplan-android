@@ -32,6 +32,46 @@ there at build time, so the APK always bundles the current panel.
 
 > Tip: set an edit PIN in the card (in HA) so the kiosk stays view/control-only.
 
+## Intercom (voice between tablets)
+
+Any two tablets in the house can call each other, hands-free. **The only thing
+you configure is a name.**
+
+1. Hidden settings → **«Интерком»** → type the panel's name (`1-этаж`, `Кухня`…)
+   → tick **«Включить интерком»**. Repeat on every tablet.
+2. Each tablet now shows an **«Интерком»** button on the plan. Tap it: the other
+   panels are already listed. Tap one to ring it.
+3. On the panel being called the screen wakes by itself and shows
+   **Ответить / Отклонить**, even from standby.
+
+Adding a fourth tablet later needs no visit to the first three — it appears in
+their lists by itself.
+
+**How it finds the others.** Each tablet writes one entity into Home Assistant,
+`sensor.bms_intercom_<id>`, carrying its name, LAN address and intercom key, and
+refreshes it every minute. Every tablet reads that same list back. HA is used
+because all the panels already talk to it — no broker, no mDNS, no static IPs,
+and a tablet that changes address fixes itself within a minute. Those states do
+not survive an HA restart, which the same heartbeat repairs.
+
+**How the voice travels.** Ringing and hang-up ride the existing HTTP control
+endpoint (port 2323). The audio itself is **plain 16 kHz PCM over UDP, tablet to
+tablet** — no WebRTC, no SIP, no video, nothing leaves the LAN and nothing passes
+through Home Assistant. On one switch, WebRTC's NAT traversal and congestion
+control buy nothing while costing more code than the rest of this app.
+
+**Security.** An invite is signed with the callee's own intercom key, taken from
+the directory; its answers are signed with a one-shot key minted for that call.
+Neither is the remote-control password, so enabling the intercom never grants
+anyone the ability to drive the kiosk. Audio packets are accepted only from the
+peer's address and only for the call in progress. Note the intercom key is
+readable by anyone with access to your Home Assistant — the same people who can
+already control the house.
+
+> If you can hear the other side but they can't hear you, or the call is silent
+> on one panel, tick **«Звук через медиа-канал»** in settings — some cheap
+> tablets have no voice-call audio path.
+
 ## Kiosk lock
 
 On by default: the app pins itself (Android **Lock Task Mode**), blocking the

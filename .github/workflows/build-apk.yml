@@ -5,7 +5,9 @@ name: Build APK
 # latest published panel — no card source lives here.
 on:
   push:
-    branches: [main]
+    # `intercom` builds too, so the tablet-to-tablet calling can be installed
+    # from the run's artifact and tried on real panels before it is released.
+    branches: [main, intercom]
     tags: ['v*']
   workflow_dispatch:
     inputs:
