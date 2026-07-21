@@ -11,7 +11,7 @@ android {
         minSdk 26
         targetSdk 34
         versionCode 54
-        versionName '1.3.0'
+        versionName '1.2.8'
     }
 
     // A FIXED signing key, so every CI build is signed with the SAME
