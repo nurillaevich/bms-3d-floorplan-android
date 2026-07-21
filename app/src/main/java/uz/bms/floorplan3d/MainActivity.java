@@ -64,6 +64,23 @@ public class MainActivity extends Activity {
     /** Load this page instead of the bundled 3D one. Empty = bundled. */
     public static final String KEY_START_URL = "start_url";
 
+    // The intercom pop-up plays its ringtone from an HA-root path
+    // (/bms_intercom_static/ring1.mp3). On this bundled file:// kiosk that URL is
+    // unreachable, and — unlike images — <audio> media loads bypass
+    // shouldInterceptRequest, so the ring stayed silent. Redirect any ring1.mp3
+    // source to the copy bundled in the APK (assets/ring1.mp3), which the media
+    // player CAN load from file://. Injected before the pop-up module runs.
+    private static final String RING_PATCH =
+            "<script>(function(){try{if(window.__bmsRing__)return;window.__bmsRing__=1;"
+            + "var R='file:///android_asset/ring1.mp3';"
+            + "var p=window.HTMLMediaElement&&HTMLMediaElement.prototype;"
+            + "var d=p&&Object.getOwnPropertyDescriptor(p,'src');"
+            + "if(!d||!d.set)return;"
+            + "Object.defineProperty(p,'src',{configurable:true,enumerable:d.enumerable,"
+            + "get:function(){return d.get.call(this);},"
+            + "set:function(v){if(typeof v==='string'&&v.indexOf('ring1.mp3')!==-1)v=R;d.set.call(this,v);}});"
+            + "}catch(e){}})();</script>";
+
     private WebView web;
     private final Handler reloadHandler = new Handler(Looper.getMainLooper());
     private Runnable autoReload;
@@ -243,7 +260,8 @@ public class MainActivity extends Activity {
         }
         String html = readAsset("kiosk/index.html");
         String cfg = "<script>window.__HA3D__={haUrl:" + jsStr(url)
-                + ",token:" + jsStr(token) + ",useSession:false,app:true};</script>";
+                + ",token:" + jsStr(token) + ",useSession:false,app:true};</script>"
+                + RING_PATCH;
         // The kiosk page carries an <!--HA3D_INJECT--> placeholder for exactly this.
         if (html.contains("<!--HA3D_INJECT-->")) {
             html = html.replace("<!--HA3D_INJECT-->", cfg);
