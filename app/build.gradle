@@ -10,8 +10,8 @@ android {
         applicationId 'uz.bms.floorplan3d'
         minSdk 26
         targetSdk 34
-        versionCode 59
-        versionName '1.2.13'
+        versionCode 60
+        versionName '1.2.14'
     }
 
     // A FIXED signing key, so every CI build is signed with the SAME
